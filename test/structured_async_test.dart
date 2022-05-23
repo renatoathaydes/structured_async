@@ -19,6 +19,7 @@ void main() {
       final interruptableActions = <Future<void> Function()>[
         () async => scheduleMicrotask(() => isRun = true),
         () => Future(() => isRun = true),
+        () => Future.delayed(Duration(milliseconds: 1), () => isRun = true),
         () async => await Future(() => isRun = true),
         () async => Timer.run(() => isRun = true),
         () async {

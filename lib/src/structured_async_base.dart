@@ -67,37 +67,107 @@ class _StructuredAsyncZoneState {
   _StructuredAsyncZoneState([this.isCancelled = false]);
 
   @override
-  // ignore: hash_and_equals
-  bool operator ==(Object other) => identical(this, other);
-
-  @override
   String toString() {
-    return '_StructuredAsyncZoneState{isCancelled: $isCancelled}';
+    var s = StringBuffer('_StructuredAsyncZoneState{');
+    _forEachZone((zone) {
+      final isCancelled = zone[_structuredAsyncCancelledFlag]?.isCancelled;
+      if (isCancelled == null) {
+        s.write(' x');
+      } else {
+        s.write(' $isCancelled');
+      }
+      return true;
+    });
+    s.write('}');
+    return s.toString();
   }
 }
 
+/// Check if the computation within the [Zone] this function is called from
+/// has been cancelled.
+///
+/// If any [CancellableFuture]'s [Zone] is cancelled, then every
+/// child [Zone] is also automatically cancelled.
 bool isComputationCancelled() {
-  return Zone.current[_structuredAsyncCancelledFlag].isCancelled;
+  var isCancelled = false;
+  _forEachZone((zone) {
+    if (zone[_structuredAsyncCancelledFlag]?.isCancelled == true) {
+      isCancelled = true;
+      return false; // stop iteration
+    }
+    return true;
+  });
+  return isCancelled;
+}
+
+void _forEachZone(bool Function(Zone) action) {
+  Zone? zone = Zone.current;
+  while (zone != null) {
+    if (!action(zone)) break;
+    zone = zone.parent;
+  }
+}
+
+ZoneSpecification _createZoneSpec() {
+  return ZoneSpecification(createTimer: (self, parent, zone, d, f) {
+    if (isComputationCancelled()) {
+      throw const InterruptedException();
+    }
+    return parent.createTimer(zone, d, f);
+  }, scheduleMicrotask: (self, parent, zone, f) {
+    if (isComputationCancelled()) {
+      throw const InterruptedException();
+    }
+    parent.scheduleMicrotask(zone, f);
+  });
+}
+
+CancellableFuture<T> _createCancellableFuture<T>(Future<T> Function() function,
+    _StructuredAsyncZoneState state, Map<Object, Object> zoneValues) {
+  return CancellableFuture._(state, Future(() {
+    return runZoned(() async {
+      try {
+        return await function();
+      } catch (e) {
+        state.isCancelled = true;
+        rethrow;
+      }
+    }, zoneValues: zoneValues, zoneSpecification: _createZoneSpec());
+  }));
 }
 
 extension StructuredAsyncFuture<T> on Future<T> Function() {
   CancellableFuture<T> cancellable() {
     final state = _StructuredAsyncZoneState();
-    return CancellableFuture._(state, Future(() {
-      return runZoned(() async => await this(),
-          zoneValues: {_structuredAsyncCancelledFlag: state},
-          zoneSpecification:
-              ZoneSpecification(createTimer: (self, parent, zone, d, f) {
-            if (self[_structuredAsyncCancelledFlag].isCancelled) {
-              throw const InterruptedException();
-            }
-            return parent.createTimer(zone, d, f);
-          }, scheduleMicrotask: (self, parent, zone, f) {
-            if (self[_structuredAsyncCancelledFlag].isCancelled) {
-              throw const InterruptedException();
-            }
-            return parent.scheduleMicrotask(zone, f);
-          }));
-    }));
+    final zoneValues = {_structuredAsyncCancelledFlag: state};
+    return _createCancellableFuture(this, state, zoneValues);
+  }
+}
+
+extension StructuredAsyncFutures<T> on List<Future<T> Function()> {
+  CancellableFuture<V> cancellable<V>(V initialValue, Function(V, T) merge) {
+    final state = _StructuredAsyncZoneState();
+    final zoneValues = {_structuredAsyncCancelledFlag: state};
+    final group = map((f) => _createCancellableFuture(f, state, zoneValues))
+        .toList(growable: false);
+
+    return _createCancellableFuture(() async {
+      var v = initialValue;
+      Object? error;
+      for (final f in group) {
+        try {
+          v = merge(v, await f);
+        } catch (e) {
+          state.isCancelled = true;
+          // from now on, all futures should fail,
+          // but we only remember the first error
+          error ??= e;
+        }
+      }
+      if (error != null) {
+        throw error;
+      }
+      return v;
+    }, state, zoneValues);
   }
 }
