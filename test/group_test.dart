@@ -19,7 +19,8 @@ void main() {
       expect(values, equals([1, 2, 3]));
     });
 
-    test('can be cancelled before all complete', () async {
+    test('can be cancelled before all complete',
+        _ignoreZoneInterruptedException(() async {
       var f1 = expectAsync0(() => 1,
           count: 1,
           max: 5,
@@ -59,8 +60,7 @@ void main() {
       } on InterruptedException {
         // good
       }
-      // FIXME throws InterruptedException again somehow
-    }, timeout: Timeout(Duration(seconds: 5)), skip: true);
+    }), timeout: Timeout(Duration(seconds: 5)));
 
     test('starts roughly at the same time', () async {
       int now() => DateTime.now().millisecondsSinceEpoch;
@@ -100,4 +100,13 @@ void main() {
       expect(endTime, greaterThanOrEqualTo(200));
     });
   });
+}
+
+Future Function() _ignoreZoneInterruptedException(Future Function() function) {
+  return () => runZonedGuarded(function, (e, st) {
+        if (e is InterruptedException) {
+        } else {
+          throw e;
+        }
+      })!;
 }
