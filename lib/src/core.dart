@@ -8,7 +8,11 @@ const Symbol _structuredAsyncCancelledFlag = #structured_async_zone_state;
 ///
 /// To cancel a [CancellableFuture], simply call [CancellableFuture.cancel].
 ///
-/// It is also possible to cancel a computation by explicitly
+/// Notice that any computation occurring within a [CancellableFuture] is
+/// automatically cancelled by an error being thrown within it, so a simple
+/// way to cancel a computation from "within" is to throw an Exception,
+/// including [FutureCancelled] to make the intent explicit (though any
+/// error works).
 class CancellableFuture<T> implements Future<T> {
   final _StructuredAsyncZoneState _state;
   final Future<T> _delegate;
@@ -19,11 +23,18 @@ class CancellableFuture<T> implements Future<T> {
     return function.cancellable();
   }
 
+  /// Create a group of asynchronous computations where if any of the
+  /// computations fails or is explicitly cancelled, all others in the
+  /// same group or sub-groups are also cancelled.
+  ///
+  /// The result of each computation is folded using iteration order
+  /// into a single result from an [initialValue] using the provided
+  /// [merge] function, similarly to [Iterable.fold].
   static CancellableFuture<V> group<T, V>(
       Iterable<Future<T> Function()> functions,
       V initialValue,
       Function(V, T) merge) {
-    return functions.cancellable(initialValue, merge);
+    return functions.cancellableGroup(initialValue, merge);
   }
 
   @override
@@ -52,6 +63,14 @@ class CancellableFuture<T> implements Future<T> {
     return _delegate.whenComplete(action);
   }
 
+  /// Cancel this [CancellableFuture].
+  ///
+  /// Currently dormant computations will not be immediately interrupted,
+  /// but any [Future] or microtask started within this computation
+  /// after a call to this method will throw [FutureCancelled].
+  ///
+  /// Any "nested" [CancellableFuture]s started within this computation
+  /// will also be cancelled.
   void cancel() {
     _state.isCancelled = true;
   }
@@ -155,7 +174,9 @@ extension StructuredAsyncFuture<T> on Future<T> Function() {
 }
 
 extension StructuredAsyncFutures<T> on Iterable<Future<T> Function()> {
-  CancellableFuture<V> cancellable<V>(V initialValue, Function(V, T) merge) {
+  /// Alias for [CancellableFuture.group].
+  CancellableFuture<V> cancellableGroup<V>(
+      V initialValue, Function(V, T) merge) {
     final state = _StructuredAsyncZoneState();
     final zoneValues = {_structuredAsyncCancelledFlag: state};
     final group = map((f) => _createCancellableFuture(f, state, zoneValues))

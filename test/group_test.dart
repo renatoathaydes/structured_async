@@ -10,15 +10,15 @@ void main() {
         () async => 1,
         () async => 2,
         () async => 3,
-      ].cancellable(<int>[], intoList());
+      ].cancellableGroup(<int>[], intoList());
       expect(values, equals([1, 2, 3]));
     });
 
     test('can be cancelled before all complete',
-        _ignoreZoneInterruptedException(() async {
+        _ignoreFutureCancelled(() async {
       var f1 = expectAsync0(() => 1,
           count: 1,
-          max: 5,
+          max: 3,
           reason: 'f1 is called immediately, '
               'then once every 10ms until cancelled around 10ms later.');
       var f2 = expectAsync0(() {
@@ -43,7 +43,7 @@ void main() {
           }
           return f3();
         },
-      ].cancellable<int>(-1, (a, b) => a + b);
+      ].cancellableGroup<int>(-1, (a, b) => a + b);
 
       await Future.delayed(Duration(milliseconds: 10));
 
@@ -74,7 +74,7 @@ void main() {
           await Future.delayed(Duration(milliseconds: 200));
           return start;
         }
-      ].cancellable(<int>[], intoList());
+      ].cancellableGroup(<int>[], intoList());
 
       final results = await cancellables;
 
@@ -97,7 +97,7 @@ void main() {
   });
 }
 
-Future Function() _ignoreZoneInterruptedException(Future Function() function) {
+Future Function() _ignoreFutureCancelled(Future Function() function) {
   return () => runZonedGuarded(function, (e, st) {
         if (e is FutureCancelled) {
         } else {

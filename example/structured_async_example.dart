@@ -45,7 +45,7 @@ Future<void> simpleExample(bool cancel) async {
   // Also notice we can use the factory constructor instead of cancellable().
   final cancelFriendlyTask = CancellableFuture.create(() async {
     if (isComputationCancelled()) {
-      // the caller will get an InterruptedException as long as they await
+      // the caller will get a FutureCancelled Exception as long as they await
       // after the task has been cancelled.
       return null;
     }
@@ -85,7 +85,7 @@ Future<void> groupExample(bool cancel) async {
     () => sleep(Duration(seconds: 1), () => print('1 second')),
     () => sleep(Duration(seconds: 2), () => print('2 seconds')),
     () => sleep(Duration(seconds: 3), () => print('3 seconds')),
-  ].cancellable(null, (void a, void b) => null);
+  ].cancellableGroup(null, (void a, void b) => null);
 
   scheduleMicrotask(() async {
     if (cancel) {

@@ -13,3 +13,7 @@ Set<T> Function(Set<T>, T) intoSet<T>() {
     return list;
   };
 }
+
+/// Discard elements. Useful to use with [CancellableFuture.group]
+/// when results of asynchronous computations should be discarded.
+void intoNothing(void a, void b) {}

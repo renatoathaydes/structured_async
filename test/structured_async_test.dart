@@ -106,4 +106,51 @@ void main() {
       }
     });
   });
+
+  group('When an error occurs within a CancellableFuture', () {
+    Future<void> badAction() async {
+      throw 'bad';
+    }
+
+    test('it propagates to the caller', () async {
+      expect(badAction, throwsA(equals('bad')));
+      final cancellableBadAction = badAction.cancellable();
+      expect(() => cancellableBadAction, throwsA(equals('bad')));
+    });
+
+    test('if cancelled first, the caller gets FutureCancelled',
+        () async {
+      final cancellableBadAction = badAction.cancellable();
+      cancellableBadAction.cancel();
+      expect(() => cancellableBadAction, throwsA(isA<FutureCancelled>()));
+    });
+
+    test('the error propagates to the caller even after a delay', () async {
+      // an error occurs immediately when the badAction executes async
+      // but we do not want that first error to propagate and fail the test
+      var firstError = true;
+      await runZonedGuarded(() async {
+        final cancellableBadAction = badAction.cancellable();
+        await Future.delayed(Duration(milliseconds: 10));
+        expect(() => cancellableBadAction, throwsA(equals('bad')));
+      }, (e, st) {
+        if (!firstError || e != 'bad') throw e;
+        firstError = false;
+      });
+    });
+
+    test('if cancelled later, the original error propagates to the caller',
+        () async {
+      var firstError = true;
+      await runZonedGuarded(() async {
+        final cancellableBadAction = badAction.cancellable();
+        await Future.delayed(Duration(milliseconds: 10));
+        cancellableBadAction.cancel();
+        expect(() => cancellableBadAction, throwsA(equals('bad')));
+      }, (e, st) {
+        if (!firstError || e != 'bad') throw e;
+        firstError = false;
+      });
+    });
+  });
 }
