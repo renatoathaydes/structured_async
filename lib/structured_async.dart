@@ -2,3 +2,4 @@
 library structured_async;
 
 export 'src/structured_async_base.dart';
+export 'src/helpers.dart';

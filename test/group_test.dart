@@ -3,11 +3,6 @@ import 'dart:async';
 import 'package:structured_async/structured_async.dart';
 import 'package:test/test.dart';
 
-List<int> addTo(List<int> list, int i) {
-  list.add(i);
-  return list;
-}
-
 void main() {
   group('Group of Cancellable actions', () {
     test('can run successfully', () async {
@@ -15,7 +10,7 @@ void main() {
         () async => 1,
         () async => 2,
         () async => 3,
-      ].cancellable(<int>[], addTo);
+      ].cancellable(<int>[], intoList());
       expect(values, equals([1, 2, 3]));
     });
 
@@ -79,7 +74,7 @@ void main() {
           await Future.delayed(Duration(milliseconds: 200));
           return start;
         }
-      ].cancellable(<int>[], addTo);
+      ].cancellable(<int>[], intoList());
 
       final results = await cancellables;
 

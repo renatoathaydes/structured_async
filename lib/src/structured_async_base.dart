@@ -19,6 +19,13 @@ class CancellableFuture<T> implements Future<T> {
     return function.cancellable();
   }
 
+  static CancellableFuture<V> group<T, V>(
+      Iterable<Future<T> Function()> functions,
+      V initialValue,
+      Function(V, T) merge) {
+    return functions.cancellable(initialValue, merge);
+  }
+
   @override
   Stream<T> asStream() {
     return _delegate.asStream();
@@ -144,7 +151,7 @@ extension StructuredAsyncFuture<T> on Future<T> Function() {
   }
 }
 
-extension StructuredAsyncFutures<T> on List<Future<T> Function()> {
+extension StructuredAsyncFutures<T> on Iterable<Future<T> Function()> {
   CancellableFuture<V> cancellable<V>(V initialValue, Function(V, T) merge) {
     final state = _StructuredAsyncZoneState();
     final zoneValues = {_structuredAsyncCancelledFlag: state};
