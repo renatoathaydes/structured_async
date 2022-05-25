@@ -59,12 +59,15 @@ class CancellableFuture<T> implements Future<T> {
 
 /// An Exception thrown when awaiting for the completion of a
 /// [CancellableFuture] that has been cancelled.
-class InterruptedException implements Exception {
-  const InterruptedException();
+///
+/// Every [Future] and microtask running inside a [CancellableFuture]'s
+/// [Zone] will be stopped by this Exception being thrown.
+class FutureCancelled implements Exception {
+  const FutureCancelled();
 
   @override
   String toString() {
-    return 'InterruptedException{Future has been interrupted}';
+    return 'FutureCancelled';
   }
 }
 
@@ -118,12 +121,12 @@ void _forEachZone(bool Function(Zone) action) {
 ZoneSpecification _createZoneSpec() {
   return ZoneSpecification(createTimer: (self, parent, zone, d, f) {
     if (isComputationCancelled()) {
-      throw const InterruptedException();
+      throw const FutureCancelled();
     }
     return parent.createTimer(zone, d, f);
   }, scheduleMicrotask: (self, parent, zone, f) {
     if (isComputationCancelled()) {
-      throw const InterruptedException();
+      throw const FutureCancelled();
     }
     parent.scheduleMicrotask(zone, f);
   });

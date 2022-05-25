@@ -37,7 +37,7 @@ void main() {
           future.cancel();
           try {
             await future;
-          } on InterruptedException {
+          } on FutureCancelled {
             interrupted = true;
           }
           expect(isRun, isFalse, reason: 'should not have run the action');
@@ -50,7 +50,7 @@ void main() {
       CancellableFuture<int> createFuture() =>
           CancellableFuture.create(() async {
             if (isComputationCancelled()) {
-              throw InterruptedException();
+              throw FutureCancelled();
             }
             return 1;
           });
@@ -60,7 +60,7 @@ void main() {
         final future = createFuture();
         future.cancel();
         return future;
-      }), throwsA(isA<InterruptedException>()));
+      }), throwsA(isA<FutureCancelled>()));
 
       // not interrupted otherwise
       expect(Future(() {
@@ -95,7 +95,7 @@ void main() {
           future.cancel();
           try {
             await future;
-          } on InterruptedException {
+          } on FutureCancelled {
             interrupted = true;
           }
           expect(isRun, isTrue, reason: 'should have run the action');

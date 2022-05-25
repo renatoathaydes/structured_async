@@ -52,7 +52,7 @@ void main() {
       try {
         await values;
         fail('Unexpected success after cancelling tasks');
-      } on InterruptedException {
+      } on FutureCancelled {
         // good
       }
     }), timeout: Timeout(Duration(seconds: 5)));
@@ -99,7 +99,7 @@ void main() {
 
 Future Function() _ignoreZoneInterruptedException(Future Function() function) {
   return () => runZonedGuarded(function, (e, st) {
-        if (e is InterruptedException) {
+        if (e is FutureCancelled) {
         } else {
           throw e;
         }

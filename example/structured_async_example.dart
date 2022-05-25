@@ -4,11 +4,15 @@ import 'package:structured_async/structured_async.dart';
 
 Future<int> theAnswer() async => 42;
 
+/// Run with the "cancel" argument to show what happens when
+/// a Future gets cancelled.
 Future<void> main(List<String> args) async {
   final cancel = args.contains('cancel');
   final startTime = now();
+
   print('Time  | Message\n'
       '------+--------');
+
   runZoned(() async {
     await simpleExample(cancel);
     await groupExample(cancel);
@@ -32,7 +36,7 @@ Future<void> simpleExample(bool cancel) async {
 
   try {
     print('The answer is ${await cancellableAnswer}');
-  } on InterruptedException {
+  } on FutureCancelled {
     print('Could not compute the answer!');
   }
 
@@ -54,7 +58,7 @@ Future<void> simpleExample(bool cancel) async {
 
   try {
     print('The answer is still ${await cancelFriendlyTask}');
-  } on InterruptedException {
+  } on FutureCancelled {
     print('Still cannot compute the answer!');
   }
 }
@@ -72,7 +76,7 @@ Future<void> groupExample(bool cancel) async {
 
   try {
     print('Group basic result: ${await group}');
-  } on InterruptedException {
+  } on FutureCancelled {
     print('Group basic result was cancelled');
   }
 
@@ -95,7 +99,7 @@ Future<void> groupExample(bool cancel) async {
   try {
     await group2;
     print('Done');
-  } on InterruptedException {
+  } on FutureCancelled {
     print('Group2 interrupted!');
   }
 }
