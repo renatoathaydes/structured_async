@@ -19,7 +19,7 @@ class CancellableFuture<T> implements Future<T> {
 
   CancellableFuture._(this._state, this._delegate);
 
-  factory CancellableFuture.create(Future<T> Function() function) {
+  factory CancellableFuture(Future<T> Function() function) {
     return function.cancellable();
   }
 

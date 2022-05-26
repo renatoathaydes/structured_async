@@ -48,9 +48,9 @@ void main() {
 
     test('check for cancellation explicitly from within a computation', () {
       CancellableFuture<int> createFuture() =>
-          CancellableFuture.create(() async {
+          CancellableFuture(() async {
             if (isComputationCancelled()) {
-              throw FutureCancelled();
+              throw const FutureCancelled();
             }
             return 1;
           });
@@ -118,8 +118,7 @@ void main() {
       expect(() => cancellableBadAction, throwsA(equals('bad')));
     });
 
-    test('if cancelled first, the caller gets FutureCancelled',
-        () async {
+    test('if cancelled first, the caller gets FutureCancelled', () async {
       final cancellableBadAction = badAction.cancellable();
       cancellableBadAction.cancel();
       expect(() => cancellableBadAction, throwsA(isA<FutureCancelled>()));

@@ -43,7 +43,7 @@ Future<void> simpleExample(bool cancel) async {
   // it is also possible to check if a computation has been cancelled
   // explicitly by calling isComputationCancelled()...
   // Also notice we can use the factory constructor instead of cancellable().
-  final cancelFriendlyTask = CancellableFuture.create(() async {
+  final cancelFriendlyTask = CancellableFuture(() async {
     if (isComputationCancelled()) {
       // the caller will get a FutureCancelled Exception as long as they await
       // after the task has been cancelled.
