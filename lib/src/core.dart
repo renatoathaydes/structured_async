@@ -137,19 +137,18 @@ void _forEachZone(bool Function(Zone) action) {
   }
 }
 
-ZoneSpecification _createZoneSpec() {
-  return ZoneSpecification(createTimer: (self, parent, zone, d, f) {
-    if (isComputationCancelled()) {
-      throw const FutureCancelled();
-    }
-    return parent.createTimer(zone, d, f);
-  }, scheduleMicrotask: (self, parent, zone, f) {
-    if (isComputationCancelled()) {
-      throw const FutureCancelled();
-    }
-    parent.scheduleMicrotask(zone, f);
-  });
-}
+final ZoneSpecification _defaultZoneSpec =
+    ZoneSpecification(createTimer: (self, parent, zone, d, f) {
+  if (isComputationCancelled()) {
+    throw const FutureCancelled();
+  }
+  return parent.createTimer(zone, d, f);
+}, scheduleMicrotask: (self, parent, zone, f) {
+  if (isComputationCancelled()) {
+    throw const FutureCancelled();
+  }
+  parent.scheduleMicrotask(zone, f);
+});
 
 CancellableFuture<T> _createCancellableFuture<T>(Future<T> Function() function,
     _StructuredAsyncZoneState state, Map<Object, Object> zoneValues) {
@@ -161,7 +160,7 @@ CancellableFuture<T> _createCancellableFuture<T>(Future<T> Function() function,
         state.isCancelled = true;
         rethrow;
       }
-    }, zoneValues: zoneValues, zoneSpecification: _createZoneSpec());
+    }, zoneValues: zoneValues, zoneSpecification: _defaultZoneSpec);
   }));
 }
 
