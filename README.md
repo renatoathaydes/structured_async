@@ -124,7 +124,7 @@ started, propagate to the caller as long as the `CancellableFuture` has not comp
 
 To illustrate the difference with `Future`, let's look at what happens when we run this:
 
-```
+```dart
 _throw() async {
   throw 'not great';
 }
@@ -197,9 +197,7 @@ all other computations are stopped and the error propagates to the `await`-er.
 
 ### Limitations
 
-Not everything can be cancelled in Dart. For example, `Timer`s that never perform any async computation cannot be
-stopped from outside themselves
-(though why would you have a timer that never calls anything async?).
+Not everything can be cancelled in Dart. For example, `Isolate`s and `Timer`s cannot be cancelled easily.
 
 For this reason, this simple example never stops running:
 

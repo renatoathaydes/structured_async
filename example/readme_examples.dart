@@ -27,8 +27,10 @@ Future<void> main(List<String> args) async {
       return await scheduledFutureWillRun();
     case 9:
       return await explicitCheckForCancellation();
+    case 10:
+      return await cannotStopIsolate();
     default:
-      throw 'Cannot recognize arguments. Give a number from 1 to 9.';
+      throw 'Cannot recognize arguments. Give a number from 1 to 10.';
   }
 }
 
@@ -146,12 +148,13 @@ Future<void> cannotStopIsolate() async {
       }
       print('Isolate finished');
     }, 'hello');
-    print(
-        'iso capabilities - pause: ${iso.pauseCapability}, terminate: ${iso.terminateCapability}');
     return iso;
   });
 
-  await Future.delayed(Duration(seconds: 3), task.cancel);
+  Future.delayed(Duration(seconds: 3), () async {
+    task.cancel();
+    print('Isolate should be cancelled now!');
+  });
 
   final iso = await task;
   final responsePort = ReceivePort();
