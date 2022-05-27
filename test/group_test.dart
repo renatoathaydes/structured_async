@@ -3,51 +3,49 @@ import 'dart:async';
 import 'package:structured_async/structured_async.dart';
 import 'package:test/test.dart';
 
+class FunctionCounter<R> {
+  int count = 0;
+  final R Function() delegate;
+
+  FunctionCounter(this.delegate);
+
+  R call() {
+    count++;
+    return delegate();
+  }
+}
+
 void main() {
+  Future<int> call10TimesIn100Ms(int Function() f) async {
+    final i = f();
+    for (var i = 0; i < 9; i++) {
+      await Future.delayed(Duration(milliseconds: 10), f);
+    }
+    return i;
+  }
+
   group('Group of Cancellable actions', () {
     test('can run successfully', () async {
-      final values = await [
-        () async => 1,
-        () async => 2,
-        () async => 3,
-      ].cancellableGroup(<int>[], intoList());
-      expect(values, equals([1, 2, 3]));
+      Future<int> do1() async => 1;
+      Future<int> do2() async => 2;
+      Future<int> do3() async => 3;
+      Future<List<int>> values =
+          CancellableFuture.group([do1, do2, do3], <int>[], intoList());
+      expect(await values, equals([1, 2, 3]));
     });
 
-    test('can be cancelled before all complete',
-        _ignoreFutureCancelled(() async {
-      var f1 = expectAsync0(() => 1,
-          count: 1,
-          max: 3,
-          reason: 'f1 is called immediately, '
-              'then once every 10ms until cancelled around 10ms later.');
-      var f2 = expectAsync0(() {
-        return 3;
-      }, count: 0, reason: 'f2 should never be called');
-      var f3 =
-          expectAsync0(() => 5, count: 0, reason: 'f3 should never be called');
+    test('can be cancelled before all complete', () async {
+      var f1 = FunctionCounter(() => 1);
+      var f2 = FunctionCounter(() => 2);
+      var f3 = FunctionCounter(() => 3);
 
-      final values = [
-        () async {
-          f1();
-          for (var i = 0; i < 10; i++) {
-            await Future.delayed(Duration(milliseconds: 10));
-            f1();
-          }
-          return f1();
-        },
-        () => Future.delayed(Duration(milliseconds: 250), () async => f2()),
-        () async {
-          for (var i = 0; i < 10; i++) {
-            await Future.delayed(Duration(milliseconds: 10));
-          }
-          return f3();
-        },
-      ].cancellableGroup<int>(-1, (a, b) => a + b);
+      final values = CancellableFuture.group([
+        () => call10TimesIn100Ms(f1),
+        () => call10TimesIn100Ms(f2),
+        () => call10TimesIn100Ms(f3),
+      ], null, intoNothing);
 
-      await Future.delayed(Duration(milliseconds: 10));
-
-      values.cancel();
+      Future.delayed(Duration(milliseconds: 20), values.cancel);
 
       try {
         await values;
@@ -55,14 +53,58 @@ void main() {
       } on FutureCancelled {
         // good
       }
-    }), timeout: Timeout(Duration(seconds: 5)));
+
+      // wait until the functions would've been called too many times
+      await Future.delayed(Duration(milliseconds: 60));
+
+      expect(f1.count, allOf(greaterThan(1), lessThan(5)));
+      expect(f2.count, allOf(greaterThan(1), lessThan(5)));
+      expect(f3.count, allOf(greaterThan(1), lessThan(5)));
+    });
+
+    test('can have sub-groups that get cancelled without affecting others',
+        () async {
+      var f1 = FunctionCounter(() => 1);
+      var f2 = FunctionCounter(() => 2);
+      // will run in a separate group, to completion
+      var f3 = FunctionCounter(() => 3);
+
+      var subGroupCancelled = false;
+
+      final values = CancellableFuture.group([
+        () async {
+          final subGroup = CancellableFuture.group([
+            () => call10TimesIn100Ms(f1),
+            () => call10TimesIn100Ms(f2),
+          ], 0, (int a, int b) => a + b, debugName: 'sub-group');
+
+          Future.delayed(Duration(milliseconds: 20), subGroup.cancel);
+
+          try {
+            return await subGroup;
+          } on FutureCancelled {
+            subGroupCancelled = true;
+          }
+          // should get here after cancellation
+          return 10;
+        },
+        () async => 2 * await call10TimesIn100Ms(f3),
+      ], <int>[], intoList(), debugName: 'main-group');
+
+      expect(await values, equals([10, 6]));
+      expect(subGroupCancelled, isTrue);
+
+      expect(f1.count, allOf(greaterThan(1), lessThan(5)));
+      expect(f2.count, allOf(greaterThan(1), lessThan(5)));
+      expect(f3.count, equals(10));
+    });
 
     test('starts roughly at the same time', () async {
       int now() => DateTime.now().millisecondsSinceEpoch;
 
       final startTime = now();
 
-      final cancellables = [
+      final cancellables = CancellableFuture.group([
         () async => now(),
         () async {
           final start = now();
@@ -74,7 +116,7 @@ void main() {
           await Future.delayed(Duration(milliseconds: 200));
           return start;
         }
-      ].cancellableGroup(<int>[], intoList());
+      ], <int>[], intoList());
 
       final results = await cancellables;
 
@@ -94,14 +136,5 @@ void main() {
       // as much as the longest computation
       expect(endTime, greaterThanOrEqualTo(200));
     });
-  });
-}
-
-Future Function() _ignoreFutureCancelled(Future Function() function) {
-  return () => runZonedGuarded(function, (e, st) {
-        if (e is FutureCancelled) {
-        } else {
-          throw e;
-        }
-      })!;
+  }, timeout: Timeout(Duration(seconds: 5)));
 }

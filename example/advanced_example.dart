@@ -11,7 +11,7 @@ final random = Random();
 Future<void> cycle(String group) async {
   for (var i = 0; i < 100; i++) {
     if (i == random.nextInt(100)) {
-      throw 'XXXX Cancelling group $group XXXXX';
+      throw 'XXXX group $group killing itself XXXXX';
     }
     print('Group $group: $i');
     await sleep(const Duration(seconds: 1));
@@ -23,8 +23,10 @@ Future<void> cycle(String group) async {
 /// All Futures in the group get cancelled together, if one dies,
 /// all other members die too.
 CancellableFuture<void> createGroup(String prefix, int count) =>
-    List.generate(count, (index) => () => cycle('$prefix-${index + 1}'))
-        .cancellableGroup(null, intoNothing);
+    CancellableFuture.group(
+        List.generate(count, (index) => () => cycle('$prefix-${index + 1}')),
+        null,
+        intoNothing);
 
 main() async {
   // run in an error Zone so the main process does not die when
@@ -41,7 +43,7 @@ main() async {
     ], null, intoNothing);
 
     // randomly cancel groups from "outside"
-    final randomKiller = () async {
+    final randomKiller = CancellableFuture(() async {
       void maybeCancel() {
         switch (random.nextInt(100)) {
           case 10:
@@ -58,25 +60,23 @@ main() async {
       for (var i = 0; i < 100; i++) {
         await sleep(const Duration(seconds: 1), maybeCancel);
       }
-    }.cancellable();
+    });
 
-    // if a member of group A dies, members of B and C are unaffected
-    // as they are not within the same group.
-    try {
-      await groupA;
+    final waiterA = groupA.then((_) {
       print('Group A ended successfully');
-    } catch (e) {
-      print('Group A did not finish successfully');
-    }
+    }, onError: (e) {
+      print('Group A did not finish successfully: $e');
+    });
 
-    try {
-      await groupsBAndC;
-      print('Group B ended successfully');
-    } catch (e) {
-      print('Groups B and C did not finish successfully');
-    }
+    final waiterBAndC = groupsBAndC.then((_) {
+      print('Groups B and C ended successfully');
+    }, onError: (e) {
+      print('Groups B and C did not finish successfully: $e');
+    });
 
     // when all groups are "done", kill the killer!
+    await waiterA;
+    await waiterBAndC;
     randomKiller.cancel();
   }, (e, st) {
     print(e);

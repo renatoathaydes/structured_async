@@ -23,12 +23,12 @@ Future<void> main(List<String> args) async {
 
 Future<void> simpleExample(bool cancel) async {
   // create a cancellable from any async function
-  final cancellableAnswer = () async {
+  final cancellableAnswer = CancellableFuture(() async {
     // the function can only be cancelled at async points,
     // so returning a number here, for example, would be impossible
     // to cancel! So we call another async function instead.
     return await theAnswer();
-  }.cancellable();
+  });
 
   if (cancel) {
     cancellableAnswer.cancel();
@@ -80,12 +80,12 @@ Future<void> groupExample(bool cancel) async {
     print('Group basic result was cancelled');
   }
 
-  final group2 = [
+  final group2 = CancellableFuture.group([
     () async => print('Started group 2, should print every second, up to 3s.'),
     () => sleep(Duration(seconds: 1), () => print('1 second')),
     () => sleep(Duration(seconds: 2), () => print('2 seconds')),
     () => sleep(Duration(seconds: 3), () => print('3 seconds')),
-  ].cancellableGroup(null, (void a, void b) => null);
+  ], null, (void a, void b) => null);
 
   scheduleMicrotask(() async {
     if (cancel) {

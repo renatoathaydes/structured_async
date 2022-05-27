@@ -5,50 +5,121 @@ import 'package:test/test.dart';
 
 void main() {
   group('Should be able to', () {
+    Future<int> async10() => Future(() => 10);
+
     test('run CancellableFuture', () async {
-      final future = (() async => 'run').cancellable();
+      final future = CancellableFuture(() async => 'run');
       expect(await future, equals('run'));
     });
 
-    group('cancel future', () {
+    test(
+        'know that async actions within CancellableFuture stop after it terminates',
+        () async {
+      var counter = 0;
+      final future = CancellableFuture(() async {
+        // schedule Future but don't wait
+        Future(() async {
+          counter++;
+          await Future(() {});
+          counter++;
+        });
+      });
+
+      await future;
+      await Future.delayed(Duration(milliseconds: 10));
+
+      expect(counter, equals(1),
+          reason: 'As the Future within CancellableFuture was not awaited, '
+              'it should be interrupted after CancellableFuture returns');
+    });
+
+    group('cancel future before it starts', () {
       var isRun = false, interrupted = false, index = 0;
       setUp(() {
         isRun = false;
         interrupted = false;
       });
       final interruptableActions = <Future<void> Function()>[
+        () async => isRun = true,
+        () => (() async => isRun = true)(),
+        () => runZoned(() async => isRun = true),
+        () async => runZoned(() => isRun = true),
         () async => scheduleMicrotask(() => isRun = true),
         () => Future(() => isRun = true),
-        () => Future.delayed(Duration(milliseconds: 1), () => isRun = true),
+        () => Future.delayed(Duration.zero, () => isRun = true),
         () async => await Future(() => isRun = true),
         () async => Timer.run(() => isRun = true),
-        () async {
-          await for (final i in Stream.fromFuture(Future(() => 1))) {
-            if (i == 1) isRun = true;
-          }
-        },
-        () => Future(() => runZoned(() => isRun = true)),
-        () => runZoned(() => Future(() => isRun = true)),
       ];
 
       for (final action in interruptableActions) {
-        test('for interrupt-able action ${index++}', () async {
-          final future = action.cancellable();
+        test('for action-${index++}', () async {
+          final future = CancellableFuture(action);
           future.cancel();
           try {
             await future;
           } on FutureCancelled {
             interrupted = true;
           }
-          expect(isRun, isFalse, reason: 'should not have run the action');
-          expect(interrupted, isTrue, reason: 'should be interrupted');
+          expect([isRun, interrupted], equals([false, true]),
+              reason: 'should not have run (ran? $isRun), '
+                  'should be interrupted (was? $interrupted)');
+        });
+      }
+    });
+
+    group('cancel async actions after CancellableFuture started', () {
+      var isRun = false, interrupted = false, index = 0;
+      setUp(() {
+        isRun = false;
+        interrupted = false;
+      });
+      final interruptableActions = <Future<void> Function()>[
+        () => Future(() {
+              isRun = true;
+              return Future(() {});
+            }),
+        () async {
+          isRun = true;
+          await Future.delayed(Duration.zero);
+          return Future(() {});
+        },
+        () async {
+          isRun = true;
+          await async10();
+          return Future(() {});
+        },
+        () async {
+          isRun = true;
+          await async10();
+          await async10();
+        },
+        () {
+          isRun = true;
+          return async10().then((x) {
+            return async10().then((y) => x * y);
+          });
+        },
+      ];
+
+      for (final action in interruptableActions) {
+        test('for action-${index++}', () async {
+          final future = CancellableFuture(action);
+          Future.delayed(Duration.zero, future.cancel);
+          try {
+            await future;
+          } on FutureCancelled {
+            interrupted = true;
+          }
+
+          expect([isRun, interrupted], equals([true, true]),
+              reason: 'should have run (ran? $isRun), '
+                  'should be interrupted (was? $interrupted)');
         });
       }
     });
 
     test('check for cancellation explicitly from within a computation', () {
-      CancellableFuture<int> createFuture() =>
-          CancellableFuture(() async {
+      CancellableFuture<int> createFuture() => CancellableFuture(() async {
             if (isComputationCancelled()) {
               throw const FutureCancelled();
             }
@@ -68,88 +139,95 @@ void main() {
         return future;
       }), completion(equals(1)));
     });
-  });
+  }, timeout: Timeout(Duration(seconds: 5)));
 
-  group('Should not be able to', () {
-    group('cancel future', () {
-      var isRun = false, interrupted = false, index = 0;
-      setUp(() {
-        isRun = false;
-        interrupted = false;
-      });
-      final nonInterruptableActions = <Future<void> Function()>[
-        () async => isRun = true,
-        () => (() async => isRun = true)(),
-        () async {
-          for (final i in [1, 2, 3, 4]) {
-            isRun = i % 2 == 0;
-          }
-        },
-        () => runZoned(() async => isRun = true),
-        () async => runZoned(() => isRun = true),
-      ];
-
-      for (final action in nonInterruptableActions) {
-        test('for non-async action ${index++}', () async {
-          final future = action.cancellable();
-          future.cancel();
-          try {
-            await future;
-          } on FutureCancelled {
-            interrupted = true;
-          }
-          expect(isRun, isTrue, reason: 'should have run the action');
-
-          // Future was still cancelled, even if its action ran
-          expect(interrupted, isTrue, reason: 'should be interrupted');
-        });
-      }
+  group('Should not be able to cancel future that has already been started',
+      () {
+    var isRun = false, interrupted = false, index = 0;
+    setUp(() {
+      isRun = false;
+      interrupted = false;
     });
-  });
+
+    // if no async action is performed within the Futures, there's no
+    // suspend point to be able to cancel
+    final nonInterruptableActions = <Future<int> Function()>[
+      () => Future(() {
+            isRun = true;
+            return 10;
+          }),
+      () async {
+        isRun = true;
+        return 10;
+      },
+      () async {
+        isRun = true;
+        return Future(() => 10);
+      },
+      () async {
+        isRun = true;
+        scheduleMicrotask(() {});
+        return 10;
+      },
+    ];
+
+    for (final action in nonInterruptableActions) {
+      test('for action-${index++}', () async {
+        final future = CancellableFuture(action);
+        await Future.delayed(Duration.zero, future.cancel);
+        int result = 0;
+        try {
+          result = await future;
+        } on FutureCancelled {
+          interrupted = true;
+        }
+
+        expect([isRun, interrupted, result], equals([true, false, 10]),
+            reason: 'should have run (ran? $isRun), '
+                'should be interrupted (was? $interrupted), '
+                'should return 10 (v=$result)');
+      });
+    }
+  }, timeout: Timeout(Duration(seconds: 5)));
 
   group('When an error occurs within a CancellableFuture', () {
     Future<void> badAction() async {
+      await Future.delayed(Duration(milliseconds: 10));
       throw 'bad';
     }
 
     test('it propagates to the caller', () async {
       expect(badAction, throwsA(equals('bad')));
-      final cancellableBadAction = badAction.cancellable();
+      final cancellableBadAction = CancellableFuture(badAction);
       expect(() => cancellableBadAction, throwsA(equals('bad')));
     });
 
     test('if cancelled first, the caller gets FutureCancelled', () async {
-      final cancellableBadAction = badAction.cancellable();
+      final cancellableBadAction = CancellableFuture(badAction);
       cancellableBadAction.cancel();
       expect(() => cancellableBadAction, throwsA(isA<FutureCancelled>()));
     });
 
     test('the error propagates to the caller even after a delay', () async {
-      // an error occurs immediately when the badAction executes async
-      // but we do not want that first error to propagate and fail the test
-      var firstError = true;
-      await runZonedGuarded(() async {
-        final cancellableBadAction = badAction.cancellable();
-        await Future.delayed(Duration(milliseconds: 10));
-        expect(() => cancellableBadAction, throwsA(equals('bad')));
-      }, (e, st) {
-        if (!firstError || e != 'bad') throw e;
-        firstError = false;
-      });
+      final cancellableBadAction = CancellableFuture(badAction);
+      cancellableBadAction
+          .then(expectAsync1((_) {}, count: 0))
+          .catchError(expectAsync1((e) {
+        expect(e, equals('bad'));
+      }));
+      await Future.delayed(Duration(milliseconds: 100));
     });
 
     test('if cancelled later, the original error propagates to the caller',
         () async {
-      var firstError = true;
-      await runZonedGuarded(() async {
-        final cancellableBadAction = badAction.cancellable();
-        await Future.delayed(Duration(milliseconds: 10));
-        cancellableBadAction.cancel();
-        expect(() => cancellableBadAction, throwsA(equals('bad')));
-      }, (e, st) {
-        if (!firstError || e != 'bad') throw e;
-        firstError = false;
-      });
+      final cancellableBadAction = CancellableFuture(badAction);
+      cancellableBadAction
+          .then(expectAsync1((_) {}, count: 0))
+          .catchError(expectAsync1((e) {
+        expect(e, equals('bad'));
+      }));
+      await Future.delayed(Duration(milliseconds: 100));
+      cancellableBadAction.cancel();
     });
-  });
+  }, timeout: Timeout(Duration(seconds: 5)));
 }

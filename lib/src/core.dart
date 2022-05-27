@@ -6,21 +6,33 @@ const Symbol _structuredAsyncCancelledFlag = #structured_async_zone_state;
 
 /// A [Future] that may be cancelled.
 ///
-/// To cancel a [CancellableFuture], simply call [CancellableFuture.cancel].
+/// To cancel a [CancellableFuture], call [CancellableFuture.cancel].
 ///
 /// Notice that any computation occurring within a [CancellableFuture] is
 /// automatically cancelled by an error being thrown within it, so a simple
 /// way to cancel a computation from "within" is to throw an Exception,
 /// including [FutureCancelled] to make the intent explicit (though any
-/// error works).
+/// error has the effect of stopping computation).
+///
+/// Once a [CancellableFuture] has been cancelled, any async function call,
+/// [Future] and [Timer] creation, scheduling a microtask, will fail
+/// within the same [Zone] and its descendants.
+/// Isolates created within the same computation, however, will not be killed
+/// automatically.
+///
+/// Only the first error within a [CancellableFuture] propagates to any
+/// potential listeners.
+/// If the `cancel` method was called while the computation had not completed,
+/// the first error will be a [FutureCancelled] Exception.
 class CancellableFuture<T> implements Future<T> {
   final _StructuredAsyncZoneState _state;
   final Future<T> _delegate;
 
   CancellableFuture._(this._state, this._delegate);
 
-  factory CancellableFuture(Future<T> Function() function) {
-    return function.cancellable();
+  factory CancellableFuture(Future<T> Function() function,
+      {String? debugName}) {
+    return _createCancellableFuture(function, debugName);
   }
 
   /// Create a group of asynchronous computations where if any of the
@@ -33,8 +45,9 @@ class CancellableFuture<T> implements Future<T> {
   static CancellableFuture<V> group<T, V>(
       Iterable<Future<T> Function()> functions,
       V initialValue,
-      Function(V, T) merge) {
-    return functions.cancellableGroup(initialValue, merge);
+      Function(V, T) merge,
+      {String? debugName}) {
+    return _createCancellableGroup(functions, initialValue, merge, debugName);
   }
 
   @override
@@ -137,67 +150,63 @@ void _forEachZone(bool Function(Zone) action) {
   }
 }
 
+void _interrupt() {
+  throw const FutureCancelled();
+}
+
 final ZoneSpecification _defaultZoneSpec =
     ZoneSpecification(createTimer: (self, parent, zone, d, f) {
   if (isComputationCancelled()) {
-    throw const FutureCancelled();
+    parent.scheduleMicrotask(zone, _interrupt);
+    return parent.createTimer(zone, d, () {});
   }
   return parent.createTimer(zone, d, f);
 }, scheduleMicrotask: (self, parent, zone, f) {
   if (isComputationCancelled()) {
-    throw const FutureCancelled();
+    return parent.scheduleMicrotask(zone, _interrupt);
   }
   parent.scheduleMicrotask(zone, f);
 });
 
-CancellableFuture<T> _createCancellableFuture<T>(Future<T> Function() function,
-    _StructuredAsyncZoneState state, Map<Object, Object> zoneValues) {
-  return CancellableFuture._(state, Future(() {
-    return runZoned(() async {
-      try {
-        return await function();
-      } catch (e) {
+CancellableFuture<T> _createCancellableFuture<T>(
+    Future<T> Function() function, String? debugName) {
+  final state = _StructuredAsyncZoneState();
+  final zoneValues = {_structuredAsyncCancelledFlag: state};
+  final result = Completer<T>();
+
+  void onError(e, st) {
+    state.isCancelled = true;
+    if (result.isCompleted) return;
+    result.completeError(e, st);
+  }
+
+  scheduleMicrotask(() {
+    runZonedGuarded(() async {
+      if (isComputationCancelled()) {
+        throw const FutureCancelled();
+      }
+      function().then(result.complete).catchError(onError).whenComplete(() {
+        // make sure that nothing can run after Future returns
         state.isCancelled = true;
-        rethrow;
-      }
-    }, zoneValues: zoneValues, zoneSpecification: _defaultZoneSpec);
-  }));
+      });
+    }, onError, zoneValues: zoneValues, zoneSpecification: _defaultZoneSpec);
+  });
+
+  return CancellableFuture._(state, result.future);
 }
 
-extension StructuredAsyncFuture<T> on Future<T> Function() {
-  CancellableFuture<T> cancellable() {
-    final state = _StructuredAsyncZoneState();
-    final zoneValues = {_structuredAsyncCancelledFlag: state};
-    return _createCancellableFuture(this, state, zoneValues);
-  }
-}
-
-extension StructuredAsyncFutures<T> on Iterable<Future<T> Function()> {
-  /// Alias for [CancellableFuture.group].
-  CancellableFuture<V> cancellableGroup<V>(
-      V initialValue, Function(V, T) merge) {
-    final state = _StructuredAsyncZoneState();
-    final zoneValues = {_structuredAsyncCancelledFlag: state};
-    final group = map((f) => _createCancellableFuture(f, state, zoneValues))
-        .toList(growable: false);
-
-    return _createCancellableFuture(() async {
-      var v = initialValue;
-      Object? error;
-      for (final f in group) {
-        try {
-          v = merge(v, await f);
-        } catch (e) {
-          state.isCancelled = true;
-          // from now on, all futures should fail,
-          // but we only remember the first error
-          error ??= e;
-        }
-      }
-      if (error != null) {
-        throw error;
-      }
-      return v;
-    }, state, zoneValues);
-  }
+CancellableFuture<V> _createCancellableGroup<V, T>(
+    Iterable<Future<T> Function()> functions,
+    V initialValue,
+    Function(V, T) merge,
+    String? debugName) {
+  return CancellableFuture(() async {
+    var v = initialValue;
+    // start all Futures eagerly
+    final futures = functions.map((f) => f()).toList(growable: false);
+    for (final f in futures) {
+      v = merge(v, await f);
+    }
+    return v;
+  }, debugName: debugName);
 }
