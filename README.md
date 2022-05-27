@@ -79,6 +79,10 @@ stopped.
 
 To cancel a `CancellableFuture`, you've guessed it: call the `cancel()` method.
 
+> From within the `CancellableFuture` computation itself, throwing an error has a similar effect as
+> being cancelled from the _outside_, i.e. stop everything and complete with an error.
+> You can use `throw const FutureCancelled()` achieve the exact same effect.
+
 Example:
 
 ```dart
