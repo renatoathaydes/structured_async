@@ -117,9 +117,15 @@ final ZoneSpecification _defaultZoneSpec =
     ZoneSpecification(createTimer: (self, parent, zone, d, f) {
   if (isComputationCancelled()) {
     parent.scheduleMicrotask(zone, _interrupt);
-    return parent.createTimer(zone, d, () {});
+    return parent.createTimer(zone, d, f)..cancel();
   }
-  return parent.createTimer(zone, d, f);
+  return zone.remember(parent.createTimer(zone, d, f));
+}, createPeriodicTimer: (self, parent, zone, d, f) {
+  if (isComputationCancelled()) {
+    parent.scheduleMicrotask(zone, _interrupt);
+    return parent.createPeriodicTimer(zone, d, f)..cancel();
+  }
+  return zone.remember(parent.createPeriodicTimer(zone, d, f));
 }, scheduleMicrotask: (self, parent, zone, f) {
   if (isComputationCancelled()) {
     return parent.scheduleMicrotask(zone, _interrupt);
@@ -145,7 +151,7 @@ CancellableFuture<T> _createCancellableFuture<T>(
       }
       function().then(result.complete).catchError(onError).whenComplete(() {
         // make sure that nothing can run after Future returns
-        state.cancel();
+        state.cancel(true);
       });
     }, onError,
         zoneValues: state.createZoneValues(),

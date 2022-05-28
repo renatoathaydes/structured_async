@@ -1,7 +1,7 @@
 # structured_async
 
 [Structured concurrency](https://en.wikipedia.org/wiki/Structured_concurrency)
-programming for the [Dart](https://dart.dev/) Programming Language.
+for the [Dart](https://dart.dev/) Programming Language.
 
 ## User Guide
 
@@ -13,9 +13,10 @@ but with the following differences:
 * it has a `cancel` method.
 * if any unhandled error occurs within it:
   * all asynchronous computations started within it are stopped.
-  * the error is propagated to the caller even if the `Future` it comes from was not `await`-ed. 
+  * the error is propagated to the caller even if the `Future` it comes from was not `await`-ed.
+* when it completes, anything it started but not waited for is cancelled.
 
-This example shows the difference:
+This example shows the basic difference:
 
 ```dart
 _runForever() async {
@@ -57,7 +58,7 @@ Tick
 The program never ends, because Dart's `Future`s that are not _await_'ed for don't stop after their
 _parent `Future` completes.
 
-However, running `cancellableFutureStopsWhenItReturns`, you see:
+However, running `cancellableFutureStopsWhenItReturns`, you should see:
 
 ```
 Tick
@@ -170,6 +171,52 @@ The error is handled correctly and the program terminates successfully.
 > If you want to explicitly allow a computation to fail, use Dart's
 > [runZoneGuarded](https://api.dart.dev/stable/dart-async/runZonedGuarded.html).
 
+### Periodic Timers and cancellation
+
+Any periodic timers started within a `CancellableFuture` will be cancelled when the `CancellableFuture` itself
+completes.
+
+Currently, that's true even if the `CancellableFuture` is cancelled early.
+
+This example shows how that works:
+
+```dart
+Future<void> periodicTimerIsCancelledOnCompletion() async {
+  final task = CancellableFuture(() async {
+    // fire and forget a periodic timer
+    Timer.periodic(Duration(seconds: 1), (_) => print('Tick'));
+    await Future.delayed(Duration(seconds: 5));
+    return 10;
+  });
+  Future.delayed(Duration(seconds: 3), () {
+    print('Cancelling');
+    task.cancel();
+  });
+  print(await task);
+}
+```
+We fire and forget a periodic timer, wait 5 seconds, then finish the `CancellableFuture` with the value `10`.
+
+Meanwhile, we also setup a `Future` to cancel the `CancellableFuture` after 3 seconds. Finally, we `await` the
+`CompletableFuture` and print its result.
+
+Result:
+
+```
+Tick
+Tick
+Cancelling
+Tick
+Tick
+Tick
+10
+```
+
+As you can see, the periodic timer continues to run until the `CancellableFuture` actually completes... and it only
+completes when it returns the value `10`, not when it's cancelled (because when it was cancelled, it was waiting on
+the 5-second delayed `Future`, and when that completes, there's no more async code to run so the cancellation does
+not have any effect... see the `Limitation` section below for a detailed explanation about this).
+
 ### CancellableFuture.group()
 
 `CancellableFuture.group()` makes it easier to run multiple asynchronous computations within the same
@@ -201,31 +248,24 @@ all other computations are stopped and the error propagates to the `await`-er.
 
 ### Limitations
 
-Not everything can be cancelled in Dart. For example, `Isolate`s and `Timer`s cannot be cancelled easily.
+Not everything can be stopped immediately in Dart when a `CancellableFuture` is cancelled:
 
-For this reason, this simple example never stops running:
+* already scheduled `Timer`s and `Future`s.
+* Dart `Isolate`s.
 
-```dart
-Future<void> neverStops() async {
-  final task = CancellableFuture(() async {
-    Timer.periodic(Duration(seconds: 1), (_) => print('Tick'));
-  });
-  Future.delayed(Duration(seconds: 3), task.cancel);
-}
-```
-
-Another simple example you might try that won't work as you think is this:
+For example, this simple code you might try probably won't work as you think it should:
 
 ```dart
 Future<void> scheduledFutureWillRun() async {
   final task = CancellableFuture(() =>
           Future.delayed(Duration(seconds: 2), () => print('2 seconds later')));
   await Future.delayed(Duration(seconds: 1), task.cancel);
+  await task;
 }
 ```
 
-This will print `2 seconds later` because an already scheduled `Future` cannot be stopped from running,
-as explained previously.
+This will print `2 seconds later` and terminate successfully because an already scheduled `Future`
+cannot be stopped from running.
 
 If you ever run into this problem, you can try to insert a few explicit checks to see if your task has been cancelled
 before doing anything.

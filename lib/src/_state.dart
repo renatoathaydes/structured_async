@@ -8,11 +8,27 @@ class StructuredAsyncZoneState {
   bool _isCancelled;
 
   bool get isCancelled => _isCancelled;
+  List<Timer>? _timers = [];
 
   StructuredAsyncZoneState([this._isCancelled = false]);
 
-  void cancel() {
+  void addTimer(Timer entry) {
+    _timers?.add(entry);
+  }
+
+  void cancel([bool cancelTimers = false]) {
     _isCancelled = true;
+    if (cancelTimers) {
+      final timers = _timers;
+      if (timers == null) return;
+      while (timers.isNotEmpty) {
+        final timer = timers.removeLast();
+        if (timer.isActive) {
+          Zone.root.run(() => Future(timer.cancel));
+        }
+      }
+      _timers = null;
+    }
   }
 
   @override
@@ -51,5 +67,13 @@ void _forEachZone(bool Function(Zone) action) {
   while (zone != null) {
     if (!action(zone)) break;
     zone = zone.parent;
+  }
+}
+
+extension StructuredAsyncZoneExtras on Zone {
+  Timer remember(Timer timer) {
+    final state = this[_stateZoneKey] as StructuredAsyncZoneState;
+    state.addTimer(timer);
+    return timer;
   }
 }

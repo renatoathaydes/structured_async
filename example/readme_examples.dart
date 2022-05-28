@@ -22,7 +22,7 @@ Future<void> main(List<String> args) async {
     case 6:
       return await groupExample();
     case 7:
-      return await neverStops();
+      return await periodicTimerIsCancelledOnCompletion();
     case 8:
       return await scheduledFutureWillRun();
     case 9:
@@ -117,17 +117,25 @@ Future<void> groupExample() async {
   print('Result: ${await group}');
 }
 
-Future<void> neverStops() async {
+Future<void> periodicTimerIsCancelledOnCompletion() async {
   final task = CancellableFuture(() async {
+    // fire and forget a periodic timer
     Timer.periodic(Duration(seconds: 1), (_) => print('Tick'));
+    await Future.delayed(Duration(seconds: 5));
+    return 10;
   });
-  Future.delayed(Duration(seconds: 3), task.cancel);
+  Future.delayed(Duration(seconds: 3), () {
+    print('Cancelling');
+    task.cancel();
+  });
+  print(await task);
 }
 
 Future<void> scheduledFutureWillRun() async {
   final task = CancellableFuture(() =>
       Future.delayed(Duration(seconds: 2), () => print('2 seconds later')));
   await Future.delayed(Duration(seconds: 1), task.cancel);
+  await task;
 }
 
 Future<void> explicitCheckForCancellation() async {
@@ -153,7 +161,7 @@ Future<void> cannotStopIsolate() async {
 
   Future.delayed(Duration(seconds: 3), () async {
     task.cancel();
-    print('Isolate should be cancelled now!');
+    print('XXX Isolate should be cancelled now! XXX');
   });
 
   final iso = await task;
