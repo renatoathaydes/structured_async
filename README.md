@@ -19,7 +19,8 @@ but with the following differences:
   * the error is propagated to the caller even if the `Future` it comes from was not `await`-ed.
 * when it completes, anything[^1] it started but not waited for is cancelled.
 
-[^1]: See the _Limitations_ section for exceptions to this rule.
+[^1]: See the [_Limitations_](#limitations) section for computations that may _escape_ the context of a `CancellableFuture`.
+Please file a bug if you find any other cases.
 
 This example shows the basic difference:
 
@@ -74,7 +75,7 @@ Stopped
 ```
 
 And the program dies. When a `CancellableFuture` completes, _most_ asynchronous computation within it
-are terminated (see the **Limitations** section for exceptions).
+are terminated (see also [_Limitations_](#limitations)).
 
 ### Cancelling computations
 
