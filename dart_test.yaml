@@ -1,0 +1,4 @@
+# https://github.com/dart-lang/test/blob/master/pkgs/test/doc/configuration.md
+
+file_reporters:
+  json: build/test-results.json
