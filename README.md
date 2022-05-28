@@ -19,23 +19,22 @@ but with the following differences:
   * the error is propagated to the caller even if the `Future` it comes from was not `await`-ed.
 * when it completes, anything[^1] it started but not waited for is cancelled.
 
-<small>
 [^1]: See the _Limitations_ section for exceptions to this rule.
-</small>
 
 This example shows the basic difference:
 
 ```dart
 _runForever() async {
   while (true) {
-    await Future.delayed(Duration(seconds: 1), () => print('Tick'));
+    print('Tick');
+    await Future.delayed(Duration(milliseconds: 500));
   }
 }
 
 Future<void> futureNeverStops() async {
   await Future(() {
     _runForever(); // no await here
-    return Future.delayed(Duration(milliseconds: 3500));
+    return Future.delayed(Duration(milliseconds: 1200));
   });
   print('Stopped');
 }
@@ -43,7 +42,7 @@ Future<void> futureNeverStops() async {
 Future<void> cancellableFutureStopsWhenItReturns() async {
   await CancellableFuture(() { // <--- this is the only difference!
     _runForever(); // no await here
-    return Future.delayed(Duration(milliseconds: 3500));
+    return Future.delayed(Duration(milliseconds: 1200));
   });
   print('Stopped');
 }
@@ -72,16 +71,10 @@ Tick
 Tick
 Tick
 Stopped
-Tick
 ```
 
 And the program dies. When a `CancellableFuture` completes, _most_ asynchronous computation within it
-are terminated (unfortunately, there are a few exceptions, see the **Limitations** section).
-
-The reason there's a last `Tick` printed after `Stopped` is that the last iteration of the loop in
-`_runForever` had already been _scheduled_, and currently, there's no way to prevent that from executing.
-But any asynchronous computation that the last iteration might've attempted to run would've been
-stopped.
+are terminated (see the **Limitations** section for exceptions).
 
 ### Cancelling computations
 
@@ -178,12 +171,10 @@ The error is handled correctly and the program terminates successfully.
 > If you want to explicitly allow a computation to fail, use Dart's
 > [runZoneGuarded](https://api.dart.dev/stable/dart-async/runZonedGuarded.html).
 
-### Periodic Timers and cancellation
+### Periodic Timers
 
 Any periodic timers started within a `CancellableFuture` will be cancelled when the `CancellableFuture` itself
-completes.
-
-Currently, that's true even if the `CancellableFuture` is cancelled early.
+completes, successfully or not, including when it gets cancelled.
 
 This example shows how that works:
 
@@ -191,38 +182,27 @@ This example shows how that works:
 Future<void> periodicTimerIsCancelledOnCompletion() async {
   final task = CancellableFuture(() async {
     // fire and forget a periodic timer
-    Timer.periodic(Duration(seconds: 1), (_) => print('Tick'));
-    await Future.delayed(Duration(seconds: 5));
+    Timer.periodic(Duration(milliseconds: 500), (_) => print('Tick'));
+    await Future.delayed(Duration(milliseconds: 1200));
     return 10;
-  });
-  Future.delayed(Duration(seconds: 3), () {
-    print('Cancelling');
-    task.cancel();
   });
   print(await task);
 }
 ```
-We fire and forget a periodic timer, wait 5 seconds, then finish the `CancellableFuture` with the value `10`.
 
-Meanwhile, we also setup a `Future` to cancel the `CancellableFuture` after 3 seconds. Finally, we `await` the
-`CompletableFuture` and print its result.
+We fire and forget a periodic timer, wait a second or so, then finish the `CancellableFuture` with the value `10`.
+
+Outside the `CancellableFuture`, we `await` its completion and print its result.
 
 Result:
 
 ```
 Tick
 Tick
-Cancelling
-Tick
-Tick
-Tick
 10
 ```
 
-As you can see, the periodic timer continues to run until the `CancellableFuture` actually completes... and it only
-completes when it returns the value `10`, not when it's cancelled (because when it was cancelled, it was waiting on
-the 5-second delayed `Future`, and when that completes, there's no more async code to run so the cancellation does
-not have any effect... see the `Limitation` section below for a detailed explanation about this).
+As you can see, the periodic timer is immediately stopped when the `CancellableFuture` that created it completes.
 
 ### CancellableFuture.group()
 

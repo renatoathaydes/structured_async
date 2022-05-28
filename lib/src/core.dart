@@ -125,19 +125,20 @@ CancellableContext? currentCancellableContext() {
   return nearestCancellableContext();
 }
 
-ZoneSpecification _defaultZoneSpec(StructuredAsyncZoneState state) =>
+ZoneSpecification _createZoneSpec(StructuredAsyncZoneState state) =>
     ZoneSpecification(createTimer: (self, parent, zone, d, f) {
       if (state.isComputationCancelled()) {
         parent.scheduleMicrotask(zone, _interrupt);
         return parent.createTimer(zone, d, f)..cancel();
       }
-      return state.remember(parent.createTimer(zone, d, f));
+      return state.remember(parent.createTimer(zone, d, f), cancelEarly: false);
     }, createPeriodicTimer: (self, parent, zone, d, f) {
       if (state.isComputationCancelled()) {
         parent.scheduleMicrotask(zone, _interrupt);
         return parent.createPeriodicTimer(zone, d, f)..cancel();
       }
-      return state.remember(parent.createPeriodicTimer(zone, d, f));
+      return state.remember(parent.createPeriodicTimer(zone, d, f),
+          cancelEarly: true);
     }, scheduleMicrotask: (self, parent, zone, f) {
       if (state.isComputationCancelled()) {
         return parent.scheduleMicrotask(zone, _interrupt);
@@ -170,7 +171,7 @@ CancellableFuture<T> _createCancellableFuture<T>(
       });
     }, onError,
         zoneValues: state.createZoneValues(),
-        zoneSpecification: _defaultZoneSpec(state));
+        zoneSpecification: _createZoneSpec(state));
   });
 
   return CancellableFuture._(state, result.future);

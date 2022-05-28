@@ -10,13 +10,13 @@ void main() {
       final result = await _run(1, timeout: Duration(seconds: 3));
       expect(await result.firstError, isNull);
       expect(result.sysout,
-          equals(['Tick', 'Tick', 'Stopped', 'Tick', 'Tick', 'Tick']));
+          equals(['Tick', 'Tick', 'Tick', 'Stopped', 'Tick', 'Tick', 'Tick']));
     });
 
     test('example 2', () async {
       final result = await _run(2);
       expect(await result.firstError, isNull);
-      expect(result.sysout, equals(['Tick', 'Tick', 'Stopped']));
+      expect(result.sysout, equals(['Tick', 'Tick', 'Tick', 'Stopped']));
     });
 
     test('example 3', () async {
@@ -47,8 +47,7 @@ void main() {
     test('example 7', () async {
       final result = await _run(7, timeout: Duration(seconds: 10));
       expect(await result.firstError, isNull);
-      expect(result.sysout,
-          equals(['Tick', 'Tick', 'Cancelling', 'Tick', 'Tick', 'Tick', '10']));
+      expect(result.sysout, equals(['Tick', 'Tick', '10']));
     });
 
     test('example 8', () async {

@@ -11,6 +11,7 @@ class StructuredAsyncZoneState with CancellableContext {
 
   bool get isCancelled => _isCancelled;
   List<Timer>? _timers = [];
+  List<Timer>? _periodicTimers = [];
 
   List<Function()>? _cancellables = [];
 
@@ -24,8 +25,11 @@ class StructuredAsyncZoneState with CancellableContext {
     _cancellables?.add(onCancelled);
   }
 
-  Timer remember(Timer timer) {
-    final timers = _timers;
+  Timer remember(Timer timer, {required bool cancelEarly}) {
+    // periodicTimers are cancelled "early" because user-code cannot
+    // block Future completion based on a periodic timer, normally,
+    // so these timers are normally "fire-and-forget".
+    final timers = cancelEarly ? _periodicTimers : _timers;
     if (timers != null) {
       timers.add(timer);
       if (timers.length % 10 == 0) {
@@ -43,8 +47,9 @@ class StructuredAsyncZoneState with CancellableContext {
       // cancelTimers is true when the Cancellable completed successfully.
       _callCancellables();
     }
+    _cancelTimers(periodic: true);
     if (cancelTimers) {
-      _cancelTimers();
+      _cancelTimers(periodic: false);
     }
   }
 
@@ -59,8 +64,8 @@ class StructuredAsyncZoneState with CancellableContext {
     }
   }
 
-  void _cancelTimers() {
-    final timers = _timers;
+  void _cancelTimers({required bool periodic}) {
+    final timers = periodic ? _periodicTimers : _timers;
     if (timers == null) return;
     for (final timer in timers) {
       if (timer.isActive) {
@@ -68,7 +73,11 @@ class StructuredAsyncZoneState with CancellableContext {
         Zone.root.run(() => Future(timer.cancel));
       }
     }
-    _timers = null;
+    if (periodic) {
+      _periodicTimers = null;
+    } else {
+      _timers = null;
+    }
   }
 
   @override

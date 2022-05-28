@@ -49,22 +49,24 @@ Future<void> _run(int example) async {
 
 _runForever() async {
   while (true) {
-    await Future.delayed(Duration(milliseconds: 500), () => print('Tick'));
+    print('Tick');
+    await Future.delayed(Duration(milliseconds: 500));
   }
 }
 
 Future<void> futureNeverStops() async {
   await Future(() {
     _runForever();
-    return Future.delayed(Duration(milliseconds: 1400));
+    return Future.delayed(Duration(milliseconds: 1200));
   });
   print('Stopped');
 }
 
 Future<void> cancellableFutureStopsWhenItReturns() async {
   await CancellableFuture(() {
-    _runForever();
-    return Future.delayed(Duration(milliseconds: 1400));
+    // <--- this is the only difference!
+    _runForever(); // no await here
+    return Future.delayed(Duration(milliseconds: 1200));
   });
   print('Stopped');
 }
@@ -133,13 +135,9 @@ Future<void> groupExample() async {
 Future<void> periodicTimerIsCancelledOnCompletion() async {
   final task = CancellableFuture(() async {
     // fire and forget a periodic timer
-    Timer.periodic(Duration(seconds: 1), (_) => print('Tick'));
-    await Future.delayed(Duration(seconds: 5));
+    Timer.periodic(Duration(milliseconds: 500), (_) => print('Tick'));
+    await Future.delayed(Duration(milliseconds: 1200));
     return 10;
-  });
-  Future.delayed(Duration(seconds: 3), () {
-    print('Cancelling');
-    task.cancel();
   });
   print(await task);
 }
