@@ -1,8 +1,5 @@
 import 'dart:async';
-
-/// A symbol that is used as key for accessing the status of a
-/// [CancellableFuture].
-const Symbol _structuredAsyncCancelledFlag = #structured_async_zone_state;
+import '_state.dart';
 
 /// A [Future] that may be cancelled.
 ///
@@ -25,7 +22,7 @@ const Symbol _structuredAsyncCancelledFlag = #structured_async_zone_state;
 /// If the `cancel` method was called while the computation had not completed,
 /// the first error will be a [FutureCancelled] Exception.
 class CancellableFuture<T> implements Future<T> {
-  final _StructuredAsyncZoneState _state;
+  final StructuredAsyncZoneState _state;
   final Future<T> _delegate;
 
   CancellableFuture._(this._state, this._delegate);
@@ -85,7 +82,7 @@ class CancellableFuture<T> implements Future<T> {
   /// Any "nested" [CancellableFuture]s started within this computation
   /// will also be cancelled.
   void cancel() {
-    _state.isCancelled = true;
+    _state.cancel();
   }
 }
 
@@ -103,51 +100,13 @@ class FutureCancelled implements Exception {
   }
 }
 
-class _StructuredAsyncZoneState {
-  bool isCancelled;
-
-  _StructuredAsyncZoneState([this.isCancelled = false]);
-
-  @override
-  String toString() {
-    var s = StringBuffer('_StructuredAsyncZoneState{');
-    _forEachZone((zone) {
-      final isCancelled = zone[_structuredAsyncCancelledFlag]?.isCancelled;
-      if (isCancelled == null) {
-        s.write(' x');
-      } else {
-        s.write(' $isCancelled');
-      }
-      return true;
-    });
-    s.write('}');
-    return s.toString();
-  }
-}
-
 /// Check if the computation within the [Zone] this function is called from
 /// has been cancelled.
 ///
 /// If any [CancellableFuture]'s [Zone] is cancelled, then every
 /// child [Zone] is also automatically cancelled.
 bool isComputationCancelled() {
-  var isCancelled = false;
-  _forEachZone((zone) {
-    if (zone[_structuredAsyncCancelledFlag]?.isCancelled == true) {
-      isCancelled = true;
-      return false; // stop iteration
-    }
-    return true;
-  });
-  return isCancelled;
-}
-
-void _forEachZone(bool Function(Zone) action) {
-  Zone? zone = Zone.current;
-  while (zone != null) {
-    if (!action(zone)) break;
-    zone = zone.parent;
-  }
+  return isCurrentZoneCancelled();
 }
 
 void _interrupt() {
@@ -170,12 +129,11 @@ final ZoneSpecification _defaultZoneSpec =
 
 CancellableFuture<T> _createCancellableFuture<T>(
     Future<T> Function() function, String? debugName) {
-  final state = _StructuredAsyncZoneState();
-  final zoneValues = {_structuredAsyncCancelledFlag: state};
+  final state = StructuredAsyncZoneState();
   final result = Completer<T>();
 
   void onError(e, st) {
-    state.isCancelled = true;
+    state.cancel();
     if (result.isCompleted) return;
     result.completeError(e, st);
   }
@@ -187,9 +145,11 @@ CancellableFuture<T> _createCancellableFuture<T>(
       }
       function().then(result.complete).catchError(onError).whenComplete(() {
         // make sure that nothing can run after Future returns
-        state.isCancelled = true;
+        state.cancel();
       });
-    }, onError, zoneValues: zoneValues, zoneSpecification: _defaultZoneSpec);
+    }, onError,
+        zoneValues: state.createZoneValues(),
+        zoneSpecification: _defaultZoneSpec);
   });
 
   return CancellableFuture._(state, result.future);
