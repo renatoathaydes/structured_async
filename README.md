@@ -1,5 +1,8 @@
 # structured_async
 
+![Project CI](https://github.com/renatoathaydes/structured_async/workflows/Project%20CI/badge.svg)
+[![pub package](https://img.shields.io/pub/v/structured_async.svg)](https://pub.dev/packages/structured_async)
+
 [Structured concurrency](https://en.wikipedia.org/wiki/Structured_concurrency)
 for the [Dart](https://dart.dev/) Programming Language.
 
