@@ -119,6 +119,12 @@ void _interrupt() {
   throw const FutureCancelled();
 }
 
+/// Get the nearest [CancellableContext] if this computation is running within
+/// a [CancellableFuture], otherwise, return null.
+CancellableContext? currentCancellableContext() {
+  return nearestCancellableContext();
+}
+
 ZoneSpecification _defaultZoneSpec(StructuredAsyncZoneState state) =>
     ZoneSpecification(createTimer: (self, parent, zone, d, f) {
       if (state.isComputationCancelled()) {

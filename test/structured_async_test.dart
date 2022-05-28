@@ -12,6 +12,12 @@ void main() {
       expect(await future, equals('run'));
     });
 
+    test('get context of CancellableFuture', () async {
+      final future = CancellableFuture(() async => currentCancellableContext());
+      expect(await future, isNotNull);
+      expect(currentCancellableContext(), isNull);
+    });
+
     test(
         'know that async actions within CancellableFuture stop after it terminates',
         () async {

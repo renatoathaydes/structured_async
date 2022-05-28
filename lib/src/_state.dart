@@ -90,6 +90,19 @@ class StructuredAsyncZoneState with CancellableContext {
   Map<Object, Object> createZoneValues() => {_stateZoneKey: this};
 }
 
+CancellableContext? nearestCancellableContext() {
+  CancellableContext? result;
+  _forEachZone((zone) {
+    final ctx = zone[_stateZoneKey];
+    if (ctx is CancellableContext) {
+      result = ctx;
+      return false;
+    }
+    return true;
+  });
+  return result;
+}
+
 bool isCurrentZoneCancelled() {
   var isCancelled = false;
   _forEachZone((zone) {
