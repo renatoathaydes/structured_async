@@ -139,6 +139,41 @@ void main() {
         return future;
       }), completion(equals(1)));
     });
+
+    test('schedule onCancel callback that does not run if not cancelled',
+        () async {
+      var onCancelRun = false;
+      final future = CancellableFuture(() async {
+        scheduleOnCancel(() {
+          onCancelRun = true;
+        });
+        return await async10() + await async10();
+      });
+
+      await future;
+      expect(onCancelRun, isFalse);
+    });
+
+    test('schedule onCancel callback that runs on cancellation', () async {
+      Zone? onCancelZone;
+      final future = CancellableFuture(() async {
+        scheduleOnCancel(() {
+          onCancelZone = Zone.current;
+        });
+        return await async10() + await async10();
+      });
+
+      Future(future.cancel);
+
+      try {
+        await future;
+        fail('Future should have been cancelled');
+      } on FutureCancelled {
+        // good
+      }
+      expect(onCancelZone, same(Zone.root),
+          reason: 'onCancel callback should run at the root Zone');
+    });
   }, timeout: Timeout(Duration(seconds: 5)));
 
   group('Should not be able to cancel future that has already been started',

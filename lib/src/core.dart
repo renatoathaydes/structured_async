@@ -109,6 +109,20 @@ bool isComputationCancelled() {
   return isCurrentZoneCancelled();
 }
 
+/// Schedule a callback to run in the root [Zone] once the [CancellableFuture]
+/// this function is called from is cancelled.
+///
+/// If the [CancellableFuture] completes before being cancelled, this callback
+/// is never invoked.
+///
+/// The callback is always executed from the root [Zone] because the current
+/// [Zone] during a cancellation would be hostile to starting any new
+/// asynchronous computations. The [CancellableFuture.cancel] method does not
+/// wait for callbacks registered via this method to complete before returning.
+void scheduleOnCancel(Function() onCancelled) {
+  registerCurrentZoneCancellable(onCancelled);
+}
+
 void _interrupt() {
   throw const FutureCancelled();
 }

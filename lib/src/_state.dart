@@ -10,25 +10,52 @@ class StructuredAsyncZoneState {
   bool get isCancelled => _isCancelled;
   List<Timer>? _timers = [];
 
+  List<Function()>? _cancellables = [];
+
   StructuredAsyncZoneState([this._isCancelled = false]);
 
   void addTimer(Timer entry) {
     _timers?.add(entry);
   }
 
+  void addCancellable(Function() cancellable) {
+    _cancellables?.add(cancellable);
+  }
+
   void cancel([bool cancelTimers = false]) {
+    final wasCancelled = _isCancelled;
     _isCancelled = true;
-    if (cancelTimers) {
-      final timers = _timers;
-      if (timers == null) return;
-      while (timers.isNotEmpty) {
-        final timer = timers.removeLast();
-        if (timer.isActive) {
-          Zone.root.run(() => Future(timer.cancel));
-        }
-      }
-      _timers = null;
+    if (!wasCancelled && !cancelTimers) {
+      // cancellables only run when future is explicitly cancelled...
+      // cancelTimers is true when the Cancellable completed successfully.
+      _callCancellables();
     }
+    if (cancelTimers) {
+      _cancelTimers();
+    }
+  }
+
+  void _callCancellables() {
+    final cancellables = _cancellables;
+
+    if (cancellables != null) {
+      for (final c in cancellables) {
+        Zone.root.run(c);
+      }
+      _cancellables = null;
+    }
+  }
+
+  void _cancelTimers() {
+    final timers = _timers;
+    if (timers == null) return;
+    for (final timer in timers) {
+      if (timer.isActive) {
+        // in the current Zone, Futures are cancelled
+        Zone.root.run(() => Future(timer.cancel));
+      }
+    }
+    _timers = null;
   }
 
   @override
@@ -60,6 +87,15 @@ bool isCurrentZoneCancelled() {
     return true;
   });
   return isCancelled;
+}
+
+void registerCurrentZoneCancellable(Function() cancellable) {
+  final state = Zone.current[_stateZoneKey];
+  if (state is StructuredAsyncZoneState) {
+    state.addCancellable(cancellable);
+  } else {
+    throw StateError('Cannot register cancellable outside CancellableFuture');
+  }
 }
 
 void _forEachZone(bool Function(Zone) action) {

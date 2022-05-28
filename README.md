@@ -14,7 +14,11 @@ but with the following differences:
 * if any unhandled error occurs within it:
   * all asynchronous computations started within it are stopped.
   * the error is propagated to the caller even if the `Future` it comes from was not `await`-ed.
-* when it completes, anything it started but not waited for is cancelled.
+* when it completes, anything[^1] it started but not waited for is cancelled.
+
+<small>
+[^1]: See the _Limitations_ section for exceptions to this rule.
+</small>
 
 This example shows the basic difference:
 
@@ -248,10 +252,11 @@ all other computations are stopped and the error propagates to the `await`-er.
 
 ### Limitations
 
-Not everything can be stopped immediately in Dart when a `CancellableFuture` is cancelled:
+Not everything can be stopped immediately in Dart when a `CancellableFuture` is cancelled.
 
-* already scheduled `Timer`s and `Future`s.
-* Dart `Isolate`s.
+The following Dart features are known to not play well with cancellations:
+
+#### already scheduled `Timer`s and `Future`s.
 
 For example, this simple code you might try probably won't work as you think it should:
 
@@ -292,6 +297,57 @@ Cancelled
 
 > Notice that calling any async method, creating a `Future` or even calling `scheduleMicrotask()` from within a task
 > would have caused the above examples to get cancelled properly without the need to call `isComputationCancelled()`.
+
+#### `Isolate`s.
+
+Dart `Isolate`s started within a `CancellableFuture` may continue running even after the `CancellableFuture` completes.
+
+To work around this problem, use the `scheduleOnCancel` function and the following general pattern:
+
+```dart
+Future<void> stoppingIsolates() async {
+  final task = CancellableFuture(() async {
+    final iso = await Isolate.spawn((message) async {
+      for (var i = 0; i < 5; i++) {
+        await Future.delayed(
+                Duration(seconds: 1), () => print('Isolate says: $message'));
+      }
+      print('Isolate finished');
+    }, 'hello');
+
+    final responsePort = ReceivePort();
+    final responseStream = responsePort.asBroadcastStream();
+
+    scheduleOnCancel(() {
+      // ensure Isolate is terminated on cancellation
+      print('Killing ISO');
+      responsePort.close();
+      iso.kill();
+    });
+
+    // wait until the Isolate stops responding or timeout
+    final waitLimit = now() + 10000;
+    while (now() < waitLimit) {
+      iso.ping(responsePort.sendPort);
+      print('Waiting for ping response');
+      try {
+        await responseStream.first.timeout(Duration(seconds: 1));
+        print('Ping OK');
+        await Future.delayed(Duration(seconds: 1));
+      } on TimeoutException {
+        print('Isolate not responding');
+        break;
+      }
+    }
+  });
+
+  try {
+    await task;
+  } on FutureCancelled {
+    print('Cancelled');
+  }
+}
+```
 
 ## Examples
 

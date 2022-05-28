@@ -28,7 +28,7 @@ Future<void> main(List<String> args) async {
     case 9:
       return await explicitCheckForCancellation();
     case 10:
-      return await cannotStopIsolate();
+      return await stoppingIsolates();
     default:
       throw 'Cannot recognize arguments. Give a number from 1 to 10.';
   }
@@ -147,7 +147,7 @@ Future<void> explicitCheckForCancellation() async {
   print(await task);
 }
 
-Future<void> cannotStopIsolate() async {
+Future<void> stoppingIsolates() async {
   final task = CancellableFuture(() async {
     final iso = await Isolate.spawn((message) async {
       for (var i = 0; i < 5; i++) {
@@ -156,7 +156,31 @@ Future<void> cannotStopIsolate() async {
       }
       print('Isolate finished');
     }, 'hello');
-    return iso;
+
+    final responsePort = ReceivePort();
+    final responseStream = responsePort.asBroadcastStream();
+
+    scheduleOnCancel(() {
+      // ensure Isolate is terminated on cancellation
+      print('Killing ISO');
+      responsePort.close();
+      iso.kill();
+    });
+
+    // wait until the Isolate stops responding or timeout
+    final waitLimit = now() + 10000;
+    while (now() < waitLimit) {
+      iso.ping(responsePort.sendPort);
+      print('Waiting for ping response');
+      try {
+        await responseStream.first.timeout(Duration(seconds: 1));
+        print('Ping OK');
+        await Future.delayed(Duration(seconds: 1));
+      } on TimeoutException {
+        print('Isolate not responding');
+        break;
+      }
+    }
   });
 
   Future.delayed(Duration(seconds: 3), () async {
@@ -164,26 +188,11 @@ Future<void> cannotStopIsolate() async {
     print('XXX Isolate should be cancelled now! XXX');
   });
 
-  final iso = await task;
-  final responsePort = ReceivePort();
-  final responseStream = responsePort.asBroadcastStream();
-  final waitLimit = now() + 10000;
-  while (now() < waitLimit) {
-    iso.ping(responsePort.sendPort);
-    print('Waiting for ping response');
-    try {
-      await responseStream.first.timeout(Duration(seconds: 1));
-      print('Ping OK');
-      await Future.delayed(Duration(seconds: 1));
-    } on TimeoutException {
-      print('Isolate not responding');
-      break;
-    }
+  try {
+    await task;
+  } on FutureCancelled {
+    print('Cancelled');
   }
-
-  // ensure Isolate is terminated
-  responsePort.close();
-  iso.kill();
 
   print('Done');
 }
