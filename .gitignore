@@ -2,6 +2,8 @@
 .dart_tool/
 .packages
 
+.dartle_tool/
+
 # Conventional directory for build outputs.
 build/
 
