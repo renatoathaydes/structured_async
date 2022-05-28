@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'context.dart';
+
 /// A symbol that is used as key for accessing the status of a
 /// [CancellableFuture].
 const Symbol _stateZoneKey = #structured_async_zone_state;
 
-class StructuredAsyncZoneState {
+class StructuredAsyncZoneState with CancellableContext {
   bool _isCancelled;
 
   bool get isCancelled => _isCancelled;
@@ -14,12 +16,23 @@ class StructuredAsyncZoneState {
 
   StructuredAsyncZoneState([this._isCancelled = false]);
 
-  void addTimer(Timer entry) {
-    _timers?.add(entry);
+  @override
+  bool isComputationCancelled() => isCurrentZoneCancelled();
+
+  @override
+  void scheduleOnCancel(Function() onCancelled) {
+    _cancellables?.add(onCancelled);
   }
 
-  void addCancellable(Function() cancellable) {
-    _cancellables?.add(cancellable);
+  Timer remember(Timer timer) {
+    final timers = _timers;
+    if (timers != null) {
+      timers.add(timer);
+      if (timers.length % 10 == 0) {
+        timers.removeWhere((t) => !t.isActive);
+      }
+    }
+    return timer;
   }
 
   void cancel([bool cancelTimers = false]) {
@@ -89,27 +102,10 @@ bool isCurrentZoneCancelled() {
   return isCancelled;
 }
 
-void registerCurrentZoneCancellable(Function() cancellable) {
-  final state = Zone.current[_stateZoneKey];
-  if (state is StructuredAsyncZoneState) {
-    state.addCancellable(cancellable);
-  } else {
-    throw StateError('Cannot register cancellable outside CancellableFuture');
-  }
-}
-
 void _forEachZone(bool Function(Zone) action) {
   Zone? zone = Zone.current;
   while (zone != null) {
     if (!action(zone)) break;
     zone = zone.parent;
-  }
-}
-
-extension StructuredAsyncZoneExtras on Zone {
-  Timer remember(Timer timer) {
-    final state = this[_stateZoneKey] as StructuredAsyncZoneState;
-    state.addTimer(timer);
-    return timer;
   }
 }

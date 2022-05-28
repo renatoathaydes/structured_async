@@ -279,9 +279,9 @@ That's what the `isComputationCancelled()` function is for, as this example demo
 
 ```dart
 Future<void> explicitCheckForCancellation() async {
-  final task = CancellableFuture(() =>
+  final task = CancellableFuture.ctx((ctx) =>
           Future.delayed(Duration(seconds: 2), () {
-            if (isComputationCancelled()) return 'Cancelled';
+            if (ctx.isComputationCancelled()) return 'Cancelled';
             return '2 seconds later';
           }));
   await Future.delayed(Duration(seconds: 1), task.cancel);
@@ -298,15 +298,18 @@ Cancelled
 > Notice that calling any async method, creating a `Future` or even calling `scheduleMicrotask()` from within a task
 > would have caused the above examples to get cancelled properly without the need to call `isComputationCancelled()`.
 
+As shown above, the `CancellableFuture.ctx` constructor must be used to get access to the context object which exposes
+`isComputationCancelled()`, amongst other helper functions.
+
 #### `Isolate`s.
 
 Dart `Isolate`s started within a `CancellableFuture` may continue running even after the `CancellableFuture` completes.
 
-To work around this problem, use the `scheduleOnCancel` function and the following general pattern:
+To work around this problem, use the context's `scheduleOnCancel` function and the following general pattern:
 
 ```dart
 Future<void> stoppingIsolates() async {
-  final task = CancellableFuture(() async {
+  final task = CancellableFuture.ctx((ctx) async {
     final iso = await Isolate.spawn((message) async {
       for (var i = 0; i < 5; i++) {
         await Future.delayed(
@@ -318,7 +321,7 @@ Future<void> stoppingIsolates() async {
     final responsePort = ReceivePort();
     final responseStream = responsePort.asBroadcastStream();
 
-    scheduleOnCancel(() {
+    ctx.scheduleOnCancel(() {
       // ensure Isolate is terminated on cancellation
       print('Killing ISO');
       responsePort.close();
@@ -351,4 +354,4 @@ Future<void> stoppingIsolates() async {
 
 ## Examples
 
-More examples can be found in the [example](example) directory.
+All examples on this page, and more, can be found in the [example](example) directory.

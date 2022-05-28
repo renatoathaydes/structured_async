@@ -139,16 +139,17 @@ Future<void> scheduledFutureWillRun() async {
 }
 
 Future<void> explicitCheckForCancellation() async {
-  final task = CancellableFuture(() => Future.delayed(Duration(seconds: 2), () {
-        if (isComputationCancelled()) return 'Cancelled';
-        return '2 seconds later';
-      }));
+  final task =
+      CancellableFuture.ctx((ctx) => Future.delayed(Duration(seconds: 2), () {
+            if (ctx.isComputationCancelled()) return 'Cancelled';
+            return '2 seconds later';
+          }));
   await Future.delayed(Duration(seconds: 1), task.cancel);
   print(await task);
 }
 
 Future<void> stoppingIsolates() async {
-  final task = CancellableFuture(() async {
+  final task = CancellableFuture.ctx((ctx) async {
     final iso = await Isolate.spawn((message) async {
       for (var i = 0; i < 5; i++) {
         await Future.delayed(
@@ -160,7 +161,7 @@ Future<void> stoppingIsolates() async {
     final responsePort = ReceivePort();
     final responseStream = responsePort.asBroadcastStream();
 
-    scheduleOnCancel(() {
+    ctx.scheduleOnCancel(() {
       // ensure Isolate is terminated on cancellation
       print('Killing ISO');
       responsePort.close();

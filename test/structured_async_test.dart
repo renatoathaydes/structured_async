@@ -119,8 +119,9 @@ void main() {
     });
 
     test('check for cancellation explicitly from within a computation', () {
-      CancellableFuture<int> createFuture() => CancellableFuture(() async {
-            if (isComputationCancelled()) {
+      CancellableFuture<int> createFuture() =>
+          CancellableFuture.ctx((ctx) async {
+            if (ctx.isComputationCancelled()) {
               throw const FutureCancelled();
             }
             return 1;
@@ -143,8 +144,8 @@ void main() {
     test('schedule onCancel callback that does not run if not cancelled',
         () async {
       var onCancelRun = false;
-      final future = CancellableFuture(() async {
-        scheduleOnCancel(() {
+      final future = CancellableFuture.ctx((ctx) async {
+        ctx.scheduleOnCancel(() {
           onCancelRun = true;
         });
         return await async10() + await async10();
@@ -156,8 +157,8 @@ void main() {
 
     test('schedule onCancel callback that runs on cancellation', () async {
       Zone? onCancelZone;
-      final future = CancellableFuture(() async {
-        scheduleOnCancel(() {
+      final future = CancellableFuture.ctx((ctx) async {
+        ctx.scheduleOnCancel(() {
           onCancelZone = Zone.current;
         });
         return await async10() + await async10();

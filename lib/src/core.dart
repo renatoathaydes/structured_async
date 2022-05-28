@@ -1,5 +1,6 @@
 import 'dart:async';
 import '_state.dart';
+import 'context.dart';
 
 /// A [Future] that may be cancelled.
 ///
@@ -15,7 +16,9 @@ import '_state.dart';
 /// [Future] and [Timer] creation, scheduling a microtask, will fail
 /// within the same [Zone] and its descendants.
 /// Isolates created within the same computation, however, will not be killed
-/// automatically.
+/// automatically. Use [CancellableContext.scheduleOnCancel] to react to a
+/// computation being cancelled in such cases (by, for example, killing the
+/// Isolate and closing its Send port).
 ///
 /// Only the first error within a [CancellableFuture] propagates to any
 /// potential listeners.
@@ -27,7 +30,19 @@ class CancellableFuture<T> implements Future<T> {
 
   CancellableFuture._(this._state, this._delegate);
 
+  /// Default constructor of [CancellableFuture].
   factory CancellableFuture(Future<T> Function() function,
+      {String? debugName}) {
+    return _createCancellableFuture((_) => function(), debugName);
+  }
+
+  /// Create a [CancellableFuture] that accepts a function whose single
+  /// argument is the returned Future's [CancellableContext].
+  ///
+  /// This context can be used within the function to obtain information about
+  /// the status of the computation (e.g. whether it's been cancelled)
+  /// and access other functionality related to its lifecycle.
+  factory CancellableFuture.ctx(Future<T> Function(CancellableContext) function,
       {String? debugName}) {
     return _createCancellableFuture(function, debugName);
   }
@@ -100,55 +115,32 @@ class FutureCancelled implements Exception {
   }
 }
 
-/// Check if the computation within the [Zone] this function is called from
-/// has been cancelled.
-///
-/// If any [CancellableFuture]'s [Zone] is cancelled, then every
-/// child [Zone] is also automatically cancelled.
-bool isComputationCancelled() {
-  return isCurrentZoneCancelled();
-}
-
-/// Schedule a callback to run in the root [Zone] once the [CancellableFuture]
-/// this function is called from is cancelled.
-///
-/// If the [CancellableFuture] completes before being cancelled, this callback
-/// is never invoked.
-///
-/// The callback is always executed from the root [Zone] because the current
-/// [Zone] during a cancellation would be hostile to starting any new
-/// asynchronous computations. The [CancellableFuture.cancel] method does not
-/// wait for callbacks registered via this method to complete before returning.
-void scheduleOnCancel(Function() onCancelled) {
-  registerCurrentZoneCancellable(onCancelled);
-}
-
 void _interrupt() {
   throw const FutureCancelled();
 }
 
-final ZoneSpecification _defaultZoneSpec =
+ZoneSpecification _defaultZoneSpec(StructuredAsyncZoneState state) =>
     ZoneSpecification(createTimer: (self, parent, zone, d, f) {
-  if (isComputationCancelled()) {
-    parent.scheduleMicrotask(zone, _interrupt);
-    return parent.createTimer(zone, d, f)..cancel();
-  }
-  return zone.remember(parent.createTimer(zone, d, f));
-}, createPeriodicTimer: (self, parent, zone, d, f) {
-  if (isComputationCancelled()) {
-    parent.scheduleMicrotask(zone, _interrupt);
-    return parent.createPeriodicTimer(zone, d, f)..cancel();
-  }
-  return zone.remember(parent.createPeriodicTimer(zone, d, f));
-}, scheduleMicrotask: (self, parent, zone, f) {
-  if (isComputationCancelled()) {
-    return parent.scheduleMicrotask(zone, _interrupt);
-  }
-  parent.scheduleMicrotask(zone, f);
-});
+      if (state.isComputationCancelled()) {
+        parent.scheduleMicrotask(zone, _interrupt);
+        return parent.createTimer(zone, d, f)..cancel();
+      }
+      return state.remember(parent.createTimer(zone, d, f));
+    }, createPeriodicTimer: (self, parent, zone, d, f) {
+      if (state.isComputationCancelled()) {
+        parent.scheduleMicrotask(zone, _interrupt);
+        return parent.createPeriodicTimer(zone, d, f)..cancel();
+      }
+      return state.remember(parent.createPeriodicTimer(zone, d, f));
+    }, scheduleMicrotask: (self, parent, zone, f) {
+      if (state.isComputationCancelled()) {
+        return parent.scheduleMicrotask(zone, _interrupt);
+      }
+      parent.scheduleMicrotask(zone, f);
+    });
 
 CancellableFuture<T> _createCancellableFuture<T>(
-    Future<T> Function() function, String? debugName) {
+    Future<T> Function(CancellableContext) function, String? debugName) {
   final state = StructuredAsyncZoneState();
   final result = Completer<T>();
 
@@ -160,16 +152,19 @@ CancellableFuture<T> _createCancellableFuture<T>(
 
   scheduleMicrotask(() {
     runZonedGuarded(() async {
-      if (isComputationCancelled()) {
+      if (state.isComputationCancelled()) {
         throw const FutureCancelled();
       }
-      function().then(result.complete).catchError(onError).whenComplete(() {
+      function(state)
+          .then(result.complete)
+          .catchError(onError)
+          .whenComplete(() {
         // make sure that nothing can run after Future returns
         state.cancel(true);
       });
     }, onError,
         zoneValues: state.createZoneValues(),
-        zoneSpecification: _defaultZoneSpec);
+        zoneSpecification: _defaultZoneSpec(state));
   });
 
   return CancellableFuture._(state, result.future);
