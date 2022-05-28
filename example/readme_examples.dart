@@ -2,13 +2,26 @@ import 'dart:async';
 import 'dart:isolate';
 import 'package:structured_async/structured_async.dart';
 
-import 'structured_async_example.dart';
+int now() => DateTime.now().millisecondsSinceEpoch;
 
-Future<void> main(List<String> args) async {
+void main(List<String> args, [SendPort? testIsolatePort]) {
   if (args.isEmpty) {
     args = ['1'];
   }
-  switch (int.parse(args[0])) {
+  final example = int.parse(args[0]);
+  if (testIsolatePort != null) {
+    runZoned(() {
+      _run(example);
+    }, zoneSpecification: ZoneSpecification(print: (a, b, c, msg) {
+      testIsolatePort.send(msg);
+    }));
+  } else {
+    _run(example);
+  }
+}
+
+Future<void> _run(int example) async {
+  switch (example) {
     case 1:
       return await futureNeverStops();
     case 2:
@@ -36,14 +49,14 @@ Future<void> main(List<String> args) async {
 
 _runForever() async {
   while (true) {
-    await Future.delayed(Duration(seconds: 1), () => print('Tick'));
+    await Future.delayed(Duration(milliseconds: 500), () => print('Tick'));
   }
 }
 
 Future<void> futureNeverStops() async {
   await Future(() {
     _runForever();
-    return Future.delayed(Duration(milliseconds: 3500));
+    return Future.delayed(Duration(milliseconds: 1400));
   });
   print('Stopped');
 }
@@ -51,7 +64,7 @@ Future<void> futureNeverStops() async {
 Future<void> cancellableFutureStopsWhenItReturns() async {
   await CancellableFuture(() {
     _runForever();
-    return Future.delayed(Duration(milliseconds: 3500));
+    return Future.delayed(Duration(milliseconds: 1400));
   });
   print('Stopped');
 }
@@ -99,8 +112,8 @@ Future<void> explicitCancel() async {
     await printForever('Tac');
   });
 
-  // cancel after 3 seconds
-  Future.delayed(Duration(seconds: 3), future.cancel);
+  // cancel after 2 seconds
+  Future.delayed(Duration(seconds: 2), future.cancel);
 
   try {
     await future;
