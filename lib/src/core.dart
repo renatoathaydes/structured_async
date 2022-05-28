@@ -121,6 +121,9 @@ void _interrupt() {
 
 /// Get the nearest [CancellableContext] if this computation is running within
 /// a [CancellableFuture], otherwise, return null.
+///
+/// Prefer to use [CancellableFuture.ctx] to obtain the non-nullable
+/// [CancellableContext] object as an argument to the Future's async function.
 CancellableContext? currentCancellableContext() {
   return nearestCancellableContext();
 }
