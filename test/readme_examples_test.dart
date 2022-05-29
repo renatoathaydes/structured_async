@@ -45,25 +45,35 @@ void main() {
     });
 
     test('example 7', () async {
-      final result = await _run(7, timeout: Duration(seconds: 10));
+      final result = await _run(7);
       expect(await result.firstError, isNull);
-      expect(result.sysout, equals(['Tick', 'Tick', '10']));
+      expect(
+          result.sysout,
+          equals([
+            'Result: ${[10, 20]}'
+          ]));
     });
 
     test('example 8', () async {
-      final result = await _run(8);
+      final result = await _run(8, timeout: Duration(seconds: 10));
       expect(await result.firstError, isNull);
-      expect(result.sysout, equals(['2 seconds later']));
+      expect(result.sysout, equals(['Tick', 'Tick', '10']));
     });
 
     test('example 9', () async {
       final result = await _run(9);
       expect(await result.firstError, isNull);
-      expect(result.sysout, equals(['Cancelled']));
+      expect(result.sysout, equals(['2 seconds later']));
     });
 
     test('example 10', () async {
       final result = await _run(10);
+      expect(await result.firstError, isNull);
+      expect(result.sysout, equals(['Cancelled']));
+    });
+
+    test('example 11', () async {
+      final result = await _run(11);
       expect(await result.firstError, isNull);
       final ping = 'Waiting for ping response';
       final ok = 'Ping OK';

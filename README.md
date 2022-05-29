@@ -205,7 +205,7 @@ Tick
 
 As you can see, the periodic timer is immediately stopped when the `CancellableFuture` that created it completes.
 
-### CancellableFuture.group()
+### CancellableFuture.group() and stream()
 
 `CancellableFuture.group()` makes it easier to run multiple asynchronous computations within the same
 `CancellableFuture` and waiting for all their results.
@@ -214,11 +214,13 @@ Example:
 
 ```dart
 Future<void> groupExample() async {
+  var result = 0;
   final group = CancellableFuture.group([
-    () async => 10,
-    () async => 20,
-  ], 0, (int a, int b) => a + b);
-  print('Result: ${await group}');
+            () async => 10,
+            () async => 20,
+  ], (int item) => result+= item);
+  await group;
+  print('Result: $result');
 }
 ```
 
@@ -231,8 +233,24 @@ Result: 30
 As with any `CancellableFuture`, if some error happens in any of the computations within a group,
 all other computations are stopped and the error propagates to the `await`-er.
 
-> The results of a `group` are combined as with `List.fold`: start with a provided initial value,
-> then call the `merge` function with the current result and each completed element, in order.
+For convenience, there's also a `stream` factory method that returns a `Stream<T>` instead
+of `CancellableFuture<void>`, but which has the exact same semantics as a group:
+
+```dart
+Future<void> streamExample() async {
+  final group = CancellableFuture.stream([
+    () async => 10,
+    () async => 20,
+  ]);
+  print('Result: ${await group.toList()}');
+}
+```
+
+Result:
+
+```
+Result: [10, 20]
+```
 
 ### Limitations
 

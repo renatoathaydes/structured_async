@@ -8,43 +8,37 @@ void main(List<String> args, [SendPort? testIsolatePort]) {
   if (args.isEmpty) {
     args = ['1'];
   }
-  final example = int.parse(args[0]);
+  final exampleIndex = int.parse(args[0]) - 1;
   if (testIsolatePort != null) {
     runZoned(() {
-      _run(example);
+      _run(exampleIndex);
     }, zoneSpecification: ZoneSpecification(print: (a, b, c, msg) {
       testIsolatePort.send(msg);
     }));
   } else {
-    _run(example);
+    _run(exampleIndex);
   }
 }
 
-Future<void> _run(int example) async {
-  switch (example) {
-    case 1:
-      return await futureNeverStops();
-    case 2:
-      return await cancellableFutureStopsWhenItReturns();
-    case 3:
-      return await futureWillNotPropagateThisError();
-    case 4:
-      return await cancellableFutureDoesPropagateThisError();
-    case 5:
-      return await explicitCancel();
-    case 6:
-      return await groupExample();
-    case 7:
-      return await periodicTimerIsCancelledOnCompletion();
-    case 8:
-      return await scheduledFutureWillRun();
-    case 9:
-      return await explicitCheckForCancellation();
-    case 10:
-      return await stoppingIsolates();
-    default:
-      throw 'Cannot recognize arguments. Give a number from 1 to 10.';
+Future<void> _run(int exampleIndex) async {
+  final examples = [
+    futureNeverStops,
+    cancellableFutureStopsWhenItReturns,
+    futureWillNotPropagateThisError,
+    cancellableFutureDoesPropagateThisError,
+    explicitCancel,
+    groupExample,
+    streamExample,
+    periodicTimerIsCancelledOnCompletion,
+    scheduledFutureWillRun,
+    explicitCheckForCancellation,
+    stoppingIsolates,
+  ];
+
+  if (exampleIndex < examples.length) {
+    return await examples[exampleIndex]();
   }
+  throw 'Cannot recognize arguments. Give a number from 1 to ${examples.length}.';
 }
 
 _runForever() async {
@@ -125,11 +119,21 @@ Future<void> explicitCancel() async {
 }
 
 Future<void> groupExample() async {
+  var result = 0;
   final group = CancellableFuture.group([
     () async => 10,
     () async => 20,
-  ], 0, (int a, int b) => a + b);
-  print('Result: ${await group}');
+  ], (int item) => result += item);
+  await group;
+  print('Result: $result');
+}
+
+Future<void> streamExample() async {
+  final group = CancellableFuture.stream([
+    () async => 10,
+    () async => 20,
+  ]);
+  print('Result: ${await group.toList()}');
 }
 
 Future<void> periodicTimerIsCancelledOnCompletion() async {

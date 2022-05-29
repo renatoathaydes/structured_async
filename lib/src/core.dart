@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import '_state.dart';
 import 'context.dart';
 
@@ -47,19 +48,55 @@ class CancellableFuture<T> implements Future<T> {
     return _createCancellableFuture(function, debugName);
   }
 
-  /// Create a group of asynchronous computations where if any of the
-  /// computations fails or is explicitly cancelled, all others in the
-  /// same group or sub-groups are also cancelled.
+  /// Create a group of asynchronous computations.
   ///
-  /// The result of each computation is folded using iteration order
-  /// into a single result from an [initialValue] using the provided
-  /// [merge] function, similarly to [Iterable.fold].
-  static CancellableFuture<V> group<T, V>(
+  /// Each of the provided `functions` is called immediately and asynchronously.
+  /// As the `Future` they return complete, the optional `receiver` function
+  /// is called in whatever order the results are emitted.
+  ///
+  /// The returned [CancellableFuture] completes when all computations complete,
+  /// or on the first error. When a computation fails, all other computations
+  /// are immediately cancelled and this Future completes with the initial
+  /// error.
+  ///
+  /// If this Future is cancelled, all computations are cancelled immediately
+  /// and this Future completes with the [FutureCancelled] error.
+  ///
+  /// If you prefer to collect the computation results in a [Stream], use the
+  /// [CancellableFuture.stream] method instead.
+  static CancellableFuture<void> group<T>(
       Iterable<Future<T> Function()> functions,
-      V initialValue,
-      Function(V, T) merge,
-      {String? debugName}) {
-    return _createCancellableGroup(functions, initialValue, merge, debugName);
+      [FutureOr<void> Function(T)? receiver]) {
+    final counterStream = StreamController<bool>();
+    final callback = receiver ?? (T _) {};
+    return CancellableFuture(() async {
+      var elementCount = 0;
+      for (final function in functions) {
+        elementCount++;
+        function()
+            .then(callback, onError: counterStream.addError)
+            .whenComplete(() => counterStream.add(false));
+      }
+      final totalElements = elementCount;
+      try {
+        await for (var _ in counterStream.stream.take(totalElements)) {}
+      } finally {
+        counterStream.close();
+      }
+    });
+  }
+
+  /// Create a group of asynchronous computations, sending their completions
+  /// to a [Stream] as they are emitted.
+  ///
+  /// The [CancellableFuture.group] method is used to run the provided
+  /// `functions`. See that method for more details.
+  static Stream<T> stream<T>(Iterable<Future<T> Function()> functions) {
+    final controller = StreamController<T>();
+    group(functions, controller.add)
+        .then((_) {}, onError: controller.addError)
+        .whenComplete(controller.close);
+    return controller.stream;
   }
 
   @override
@@ -178,20 +215,4 @@ CancellableFuture<T> _createCancellableFuture<T>(
   });
 
   return CancellableFuture._(state, result.future);
-}
-
-CancellableFuture<V> _createCancellableGroup<V, T>(
-    Iterable<Future<T> Function()> functions,
-    V initialValue,
-    Function(V, T) merge,
-    String? debugName) {
-  return CancellableFuture(() async {
-    var v = initialValue;
-    // start all Futures eagerly
-    final futures = functions.map((f) => f()).toList(growable: false);
-    for (final f in futures) {
-      v = merge(v, await f);
-    }
-    return v;
-  }, debugName: debugName);
 }

@@ -24,9 +24,7 @@ Future<void> cycle(String group) async {
 /// all other members die too.
 CancellableFuture<void> createGroup(String prefix, int count) =>
     CancellableFuture.group(
-        List.generate(count, (index) => () => cycle('$prefix-${index + 1}')),
-        null,
-        intoNothing);
+        List.generate(count, (index) => () => cycle('$prefix-${index + 1}')));
 
 main() async {
   // run in an error Zone so the main process does not die when
@@ -40,7 +38,7 @@ main() async {
     final groupsBAndC = CancellableFuture.group([
       () => createGroup('B', 2),
       () => createGroup('C', 2),
-    ], null, intoNothing);
+    ]);
 
     // randomly cancel groups from "outside"
     final randomKiller = CancellableFuture(() async {

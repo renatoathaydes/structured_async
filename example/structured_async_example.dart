@@ -64,18 +64,24 @@ Future<void> simpleExample(bool cancel) async {
 }
 
 Future<void> groupExample(bool cancel) async {
+  final results = <int?>[];
+
   final group = CancellableFuture.group([
-    () async => 1,
-    () async => 2,
-    () async => 3,
-  ], <int>[], intoList());
+    () async => sleep(Duration(milliseconds: 30), () => 1),
+    () async => sleep(Duration(milliseconds: 10), () => 2),
+    () async => sleep(Duration(milliseconds: 20), () => 3),
+  ], (int? n) {
+    // values are received in the order they are emitted!
+    results.add(n);
+  });
 
   if (cancel) {
     // group.cancel();
   }
 
   try {
-    print('Group basic result: ${await group}');
+    await group;
+    print('Group basic result: $results');
   } on FutureCancelled {
     print('Group basic result was cancelled');
   }
@@ -85,7 +91,7 @@ Future<void> groupExample(bool cancel) async {
     () => sleep(Duration(seconds: 1), () => print('1 second')),
     () => sleep(Duration(seconds: 2), () => print('2 seconds')),
     () => sleep(Duration(seconds: 3), () => print('3 seconds')),
-  ], null, (void a, void b) => null);
+  ]);
 
   scheduleMicrotask(() async {
     if (cancel) {
@@ -113,10 +119,10 @@ int now() => DateTime.now().millisecondsSinceEpoch;
 /// [Future.delayed] call. In the real world, actual async code
 /// would be used rather than [Future.delayed] anyway, so this
 /// should not be a problem in most applications.
-Future<void> sleep(Duration duration, [void Function()? function]) async {
+Future<T?> sleep<T>(Duration duration, [T Function()? function]) async {
   final stopTime = now() + duration.inMilliseconds;
   while (now() < stopTime) {
     await Future.delayed(const Duration(milliseconds: 50));
   }
-  function?.call();
+  return function?.call();
 }

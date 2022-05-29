@@ -29,9 +29,8 @@ void main() {
       Future<int> do1() async => 1;
       Future<int> do2() async => 2;
       Future<int> do3() async => 3;
-      Future<List<int>> values =
-          CancellableFuture.group([do1, do2, do3], <int>[], intoList());
-      expect(await values, equals([1, 2, 3]));
+      final items = CancellableFuture.stream([do1, do2, do3]);
+      expect(await items.toList(), equals([1, 2, 3]));
     });
 
     test('can be cancelled before all complete', () async {
@@ -39,16 +38,16 @@ void main() {
       var f2 = FunctionCounter(() => 2);
       var f3 = FunctionCounter(() => 3);
 
-      final values = CancellableFuture.group([
+      final future = CancellableFuture.group([
         () => call10TimesIn100Ms(f1),
         () => call10TimesIn100Ms(f2),
         () => call10TimesIn100Ms(f3),
-      ], null, intoNothing);
+      ]);
 
-      Future.delayed(Duration(milliseconds: 20), values.cancel);
+      Future.delayed(Duration(milliseconds: 20), future.cancel);
 
       try {
-        await values;
+        await future;
         fail('Unexpected success after cancelling tasks');
       } on FutureCancelled {
         // good
@@ -71,17 +70,17 @@ void main() {
 
       var subGroupCancelled = false;
 
-      final values = CancellableFuture.group([
+      final values = CancellableFuture.stream<int>([
         () async {
           final subGroup = CancellableFuture.group([
             () => call10TimesIn100Ms(f1),
             () => call10TimesIn100Ms(f2),
-          ], 0, (int a, int b) => a + b, debugName: 'sub-group');
+          ]);
 
           Future.delayed(Duration(milliseconds: 20), subGroup.cancel);
 
           try {
-            return await subGroup;
+            await subGroup;
           } on FutureCancelled {
             subGroupCancelled = true;
           }
@@ -89,7 +88,7 @@ void main() {
           return 10;
         },
         () async => 2 * await call10TimesIn100Ms(f3),
-      ], <int>[], intoList(), debugName: 'main-group');
+      ]).toList();
 
       expect(await values, equals([10, 6]));
       expect(subGroupCancelled, isTrue);
@@ -102,9 +101,10 @@ void main() {
     test('starts roughly at the same time', () async {
       int now() => DateTime.now().millisecondsSinceEpoch;
 
+      final results = <int>[];
       final startTime = now();
 
-      final cancellables = CancellableFuture.group([
+      final future = CancellableFuture.group([
         () async => now(),
         () async {
           final start = now();
@@ -116,9 +116,9 @@ void main() {
           await Future.delayed(Duration(milliseconds: 200));
           return start;
         }
-      ], <int>[], intoList());
+      ], results.add);
 
-      final results = await cancellables;
+      await future;
 
       final endTime = now();
 
@@ -135,6 +135,49 @@ void main() {
       // the whole computation needs to take at least
       // as much as the longest computation
       expect(endTime, greaterThanOrEqualTo(200));
+    });
+
+    test('stop on the first error and propagates that error to the caller',
+        () async {
+      var f1 = FunctionCounter(() => 1);
+      var f3 = FunctionCounter(() => 3);
+      var counter = 0;
+      final future = CancellableFuture.group([
+        () => call10TimesIn100Ms(f1),
+        () => call10TimesIn100Ms(() {
+              counter++;
+              if (counter == 3) {
+                throw StateError('');
+              }
+              return counter;
+            }),
+        () => call10TimesIn100Ms(f3),
+      ]);
+
+      try {
+        await future;
+        fail('Should not have succeeded');
+      } on StateError {
+        // good
+      }
+
+      expect(counter, equals(3), reason: 'failing function should run up to 3');
+      expect(f1.count, allOf(greaterThan(1), lessThan(5)));
+      expect(f3.count, allOf(greaterThan(1), lessThan(5)));
+    });
+
+    test('where a receiver throws error should stop and report that error',
+        () async {
+      final future = CancellableFuture.group([
+        () async => 1,
+        () async => 2,
+      ], (n) {
+        if (n == 2) {
+          throw StateError('no 2 please');
+        }
+      });
+
+      expect(future, throwsA(isA<StateError>()));
     });
   }, timeout: Timeout(Duration(seconds: 5)));
 }
