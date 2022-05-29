@@ -8,16 +8,28 @@ void main(List<String> args, [SendPort? testIsolatePort]) {
   if (args.isEmpty) {
     args = ['1'];
   }
+  final logTime = args.length > 1 && args[1] == 'time';
   final exampleIndex = int.parse(args[0]) - 1;
-  if (testIsolatePort != null) {
-    runZoned(() {
-      _run(exampleIndex);
-    }, zoneSpecification: ZoneSpecification(print: (a, b, c, msg) {
-      testIsolatePort.send(msg);
-    }));
-  } else {
-    _run(exampleIndex);
+  final startTime = now();
+
+  if (logTime) {
+    print('Time  | Message\n'
+        '------+--------');
   }
+
+  runZoned(() {
+    _run(exampleIndex);
+  }, zoneSpecification: ZoneSpecification(print: (self, parent, zone, line) {
+    if (testIsolatePort == null) {
+      parent.print(
+          zone,
+          logTime
+              ? '${(now() - startTime).toString().padRight(5)} | $line'
+              : line);
+    } else {
+      testIsolatePort.send(line);
+    }
+  }));
 }
 
 Future<void> _run(int exampleIndex) async {
@@ -123,7 +135,7 @@ Future<void> groupExample() async {
   final group = CancellableFuture.group([
     () async => 10,
     () async => 20,
-  ], (int item) => result += item);
+  ], receiver: (int item) => result += item);
   await group;
   print('Result: $result');
 }
@@ -165,50 +177,45 @@ Future<void> explicitCheckForCancellation() async {
 
 Future<void> stoppingIsolates() async {
   final task = CancellableFuture.ctx((ctx) async {
+    final responsePort = ReceivePort()..listen(print);
+
     final iso = await Isolate.spawn((message) async {
-      for (var i = 0; i < 5; i++) {
-        await Future.delayed(
-            Duration(seconds: 1), () => print('Isolate says: $message'));
+      message as SendPort;
+      for (var i = 0; i < 10; i++) {
+        await Future.delayed(Duration(milliseconds: 500),
+            () => message.send('Isolate says: hello'));
       }
-      print('Isolate finished');
-    }, 'hello');
+      message.send('Isolate finished');
+    }, responsePort.sendPort);
 
-    final responsePort = ReceivePort();
-    final responseStream = responsePort.asBroadcastStream();
-
-    ctx.scheduleOnCancel(() {
-      // ensure Isolate is terminated on cancellation
-      print('Killing ISO');
+    Zone zone = Zone.current;
+    // this runs in the root Zone
+    ctx.scheduleOnCompletion(() {
+      // ensure Isolate is terminated on completion
+      zone.print('Killing ISO');
       responsePort.close();
       iso.kill();
     });
 
-    // wait until the Isolate stops responding or timeout
-    final waitLimit = now() + 10000;
-    while (now() < waitLimit) {
-      iso.ping(responsePort.sendPort);
-      print('Waiting for ping response');
+    // let this Future continue to run for a few seconds by
+    // pretending to do some work
+    for (var i = 0; i < 20; i++) {
       try {
-        await responseStream.first.timeout(Duration(seconds: 1));
-        print('Ping OK');
-        await Future.delayed(Duration(seconds: 1));
-      } on TimeoutException {
-        print('Isolate not responding');
+        await Future.delayed(Duration(milliseconds: 200));
+      } on FutureCancelled {
         break;
       }
     }
+    // no more async computations, so it completes normally
+    print('CancellableFuture finished');
   });
 
-  Future.delayed(Duration(seconds: 3), () async {
+  Future.delayed(Duration(seconds: 2), () async {
     task.cancel();
-    print('XXX Isolate should be cancelled now! XXX');
+    print('XXX Task was cancelled now! XXX');
   });
 
-  try {
-    await task;
-  } on FutureCancelled {
-    print('Cancelled');
-  }
+  await task;
 
   print('Done');
 }

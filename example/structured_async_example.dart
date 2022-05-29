@@ -70,7 +70,7 @@ Future<void> groupExample(bool cancel) async {
     () async => sleep(Duration(milliseconds: 30), () => 1),
     () async => sleep(Duration(milliseconds: 10), () => 2),
     () async => sleep(Duration(milliseconds: 20), () => 3),
-  ], (int? n) {
+  ], receiver: (int? n) {
     // values are received in the order they are emitted!
     results.add(n);
   });

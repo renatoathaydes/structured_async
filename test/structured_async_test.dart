@@ -39,6 +39,24 @@ void main() {
               'it should be interrupted after CancellableFuture returns');
     });
 
+    test('collect uncaught errors', () async {
+      final errors = [];
+      final future = CancellableFuture(() async {
+        Future(() {
+          throw 'error 1';
+        });
+        // no await, so inner Future should failed as it gets cancelled
+        Future(() async {
+          await Future(() {});
+        });
+      }, uncaughtErrorHandler: (e, st) => errors.add(e));
+
+      await future;
+      await Future.delayed(Duration.zero);
+
+      expect(errors, equals(const ['error 1', FutureCancelled()]));
+    });
+
     group('cancel future before it starts', () {
       var isRun = false, interrupted = false, index = 0;
       setUp(() {

@@ -62,7 +62,7 @@ Tick
 ...
 ```
 
-The program never ends, because Dart's `Future`s that are not _await_'ed for don't stop after their
+The program never ends because Dart's `Future`s that are not _await_'ed for don't stop after their
 _parent `Future` completes.
 
 However, running `cancellableFutureStopsWhenItReturns`, you should see:
@@ -71,11 +71,72 @@ However, running `cancellableFutureStopsWhenItReturns`, you should see:
 Tick
 Tick
 Tick
+Tick
 Stopped
 ```
 
 And the program dies. When a `CancellableFuture` completes, _most_ asynchronous computation within it
-are terminated (see also [_Limitations_](#limitations)).
+are terminated (see also [_Limitations_](#limitations)). Any pending `Future`s and `Timer`s are completed
+immediately, and attempting to create any new `Future` and `Timer` within the `CancellableFuture` computation
+will fail from that point on.
+
+To make it clearer what is going on, run example 2 (shown above) with the `time` option,
+which will print the time since the program started (in ms) when each `print` is called:
+
+```shell
+dart example/readme_examples.dart 2 time
+```
+
+Result:
+
+```
+Time  | Message
+------+--------
+26    | Tick
+542   | Tick
+1046  | Tick
+1243  | Tick
+1249  | Stopped
+```
+
+Notice how the `Tick` messages are initially printed every 500ms, as the code intended, but once the `CancellableFuture`
+completes, at `t=1200` approximately, the delayed `Future` in `_runForever` is awakened _early_, the loop continues
+by again printing `Tick` (hence the last `Tick` message), and when it tries to await again on a new delayed `Future`,
+its computation is aborted with a `FutureCancelled` Exception (because the `CancellableFuture` ended, any pending
+computation is thus automatically cancelled) which in this example happens to be silently ignored.
+
+You can register a callback to receive uncaught errors when you create a `CancellableFuture`
+(notice that uncaught errors may be received just **after** the `CancellableFuture` returns, but are otherwise
+unobservable):
+
+```dart
+await CancellableFuture(() {
+  ...
+}, uncaughtErrorHandler: (e, st) {
+  print('Error: $e\n$st');
+});
+```
+
+Running the example again, the result would be:
+
+```
+Time  | Message
+------+--------
+35    | Tick
+550   | Tick
+1051  | Tick
+1252  | Tick
+1257  | Error: FutureCancelled
+#0      StructuredAsyncZoneState.remember (package:structured_async/src/_state.dart:47:7)
+#1      _createZoneSpec.<anonymous closure> (package:structured_async/src/core.dart:164:20)
+#2      _CustomZone.createTimer (dart:async/zone.dart:1388:19)
+#3      new Timer (dart:async/timer.dart:54:10)
+#4      new Future.delayed (dart:async/future.dart:388:9)
+#5      _runForever (file:///projects/structured_async/example/readme_examples.dart:59:18)
+<asynchronous suspension>
+
+1258  | Stopped
+```
 
 ### Cancelling computations
 
@@ -220,7 +281,7 @@ Future<void> groupExample() async {
   final group = CancellableFuture.group([
             () async => 10,
             () async => 20,
-  ], (int item) => result += item);
+  ], receiver: (int item) => result += item);
   await group;
   print('Result: $result');
 }
@@ -256,13 +317,16 @@ Result: [10, 20]
 
 ### Limitations
 
-Not everything can be stopped immediately in Dart when a `CancellableFuture` is cancelled.
+Not everything can be stopped immediately when a `CancellableFuture` is cancelled.
 
-The following Dart features are known to not play well with cancellations:
+Known issues are listed below.
 
-#### already scheduled `Timer`s and `Future`s.
+#### stopped `Timer`s and `Future`s.
 
-For example, this simple code you might try probably won't work as you think it should:
+When `CancellableFuture` completes or is cancelled explicitly, any pending `Future` and `Timer` within it
+will be immediately awakened so  the synchronous code that follows them will be executed.
+
+For example, this simple code probably won't work as you think it should:
 
 ```dart
 Future<void> scheduledFutureWillRun() async {
@@ -273,8 +337,8 @@ Future<void> scheduledFutureWillRun() async {
 }
 ```
 
-This will print `2 seconds later` and terminate successfully because an already scheduled `Future`
-cannot be stopped from running.
+This will actually print `2 seconds later`, but after only 1 second, and the program will terminate successfully because
+no more asynchronous calls were made within the Future.
 
 If you ever run into this problem, you can try to insert a few explicit checks to see if your task has been cancelled
 before doing anything.
@@ -299,61 +363,88 @@ Result:
 Cancelled
 ```
 
-> Notice that calling any async method, creating a `Future` or even calling `scheduleMicrotask()` from within a task
-> would have caused the above examples to get cancelled properly without the need to call `isComputationCancelled()`.
+Running with the `time` option proves that the `CancellableFuture` indeed returned after around 1 second:
+
+```
+Time  | Message
+------+--------
+1032  | Cancelled
+```
+
+> Notice that calling any async method or creating a `Future` from within a task
+> would have caused the above `CancellableFuture` to abort with a `FutureCancelled` Exception.
 
 As shown above, the `CancellableFuture.ctx` constructor must be used to get access to the context object which exposes
 `isComputationCancelled()`, amongst other helper functions.
+
+If passing the context object into where it's needed gets cumbersome, you can use the top-level function
+`CancellableContext? currentCancellableContext()`, which returns `null` when it's not executed from within a
+`CancellableFuture` computation.
 
 #### `Isolate`s.
 
 Dart `Isolate`s started within a `CancellableFuture` may continue running even after the `CancellableFuture` completes.
 
-To work around this problem, use the context's `scheduleOnCancel` function and the following general pattern:
+To work around this problem, use the context's `scheduleOnCompletion` function and the following general pattern
+to ensure the `Isolate`s don't survive after a `CancellableFuture` it was created from returns:
 
 ```dart
 Future<void> stoppingIsolates() async {
   final task = CancellableFuture.ctx((ctx) async {
+    final responsePort = ReceivePort()..listen(print);
+
     final iso = await Isolate.spawn((message) async {
-      for (var i = 0; i < 5; i++) {
-        await Future.delayed(
-                Duration(seconds: 1), () => print('Isolate says: $message'));
+      message as SendPort;
+      for (var i = 0; i < 10; i++) {
+        await Future.delayed(Duration(milliseconds: 500),
+                        () => message.send('Isolate says: hello'));
       }
-      print('Isolate finished');
-    }, 'hello');
+      message.send('Isolate finished');
+    }, responsePort.sendPort);
 
-    final responsePort = ReceivePort();
-    final responseStream = responsePort.asBroadcastStream();
-
-    ctx.scheduleOnCancel(() {
-      // ensure Isolate is terminated on cancellation
-      print('Killing ISO');
+    Zone zone = Zone.current;
+    // this runs in the root Zone
+    ctx.scheduleOnCompletion(() {
+      // ensure Isolate is terminated on completion
+      zone.print('Killing ISO');
       responsePort.close();
       iso.kill();
     });
 
-    // wait until the Isolate stops responding or timeout
-    final waitLimit = now() + 10000;
-    while (now() < waitLimit) {
-      iso.ping(responsePort.sendPort);
-      print('Waiting for ping response');
+    // let this Future continue to run for a few seconds by
+    // pretending to do some work
+    for (var i = 0; i < 20; i++) {
       try {
-        await responseStream.first.timeout(Duration(seconds: 1));
-        print('Ping OK');
-        await Future.delayed(Duration(seconds: 1));
-      } on TimeoutException {
-        print('Isolate not responding');
+        await Future.delayed(Duration(milliseconds: 200));
+      } on FutureCancelled {
         break;
       }
     }
+    // no more async computations, so it completes normally
+    print('CancellableFuture finished');
   });
 
-  try {
-    await task;
-  } on FutureCancelled {
-    print('Cancelled');
-  }
+  Future.delayed(Duration(seconds: 2), () async {
+    task.cancel();
+    print('XXX Task was cancelled now! XXX');
+  });
+
+  await task;
+
+  print('Done');
 }
+```
+
+Result:
+
+```
+Isolate says: hello
+Isolate says: hello
+Isolate says: hello
+XXX Task was cancelled now! XXX
+CancellableFuture finished
+Killing ISO
+Done
 ```
 
 ## Examples

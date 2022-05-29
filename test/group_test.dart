@@ -116,7 +116,7 @@ void main() {
           await Future.delayed(Duration(milliseconds: 200));
           return start;
         }
-      ], results.add);
+      ], receiver: results.add);
 
       await future;
 
@@ -171,7 +171,7 @@ void main() {
       final future = CancellableFuture.group([
         () async => 1,
         () async => 2,
-      ], (n) {
+      ], receiver: (n) {
         if (n == 2) {
           throw StateError('no 2 please');
         }

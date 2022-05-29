@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '_state.dart';
+import 'error.dart';
 import 'context.dart';
 
 /// A [Future] that may be cancelled.
@@ -14,12 +15,11 @@ import 'context.dart';
 /// error has the effect of stopping computation).
 ///
 /// Once a [CancellableFuture] has been cancelled, any async function call,
-/// [Future] and [Timer] creation, scheduling a microtask, will fail
+/// or [Future] and [Timer] creation, will fail
 /// within the same [Zone] and its descendants.
 /// Isolates created within the same computation, however, will not be killed
-/// automatically. Use [CancellableContext.scheduleOnCancel] to react to a
-/// computation being cancelled in such cases (by, for example, killing the
-/// Isolate and closing its Send port).
+/// automatically. Use [CancellableContext.scheduleOnCompletion] to ensure
+/// Isolates are killed appropriately in such cases.
 ///
 /// Only the first error within a [CancellableFuture] propagates to any
 /// potential listeners.
@@ -33,8 +33,9 @@ class CancellableFuture<T> implements Future<T> {
 
   /// Default constructor of [CancellableFuture].
   factory CancellableFuture(Future<T> Function() function,
-      {String? debugName}) {
-    return _createCancellableFuture((_) => function(), debugName);
+      {String? debugName, Function(Object, StackTrace)? uncaughtErrorHandler}) {
+    return _createCancellableFuture(
+        (_) => function(), debugName, uncaughtErrorHandler);
   }
 
   /// Create a [CancellableFuture] that accepts a function whose single
@@ -44,8 +45,8 @@ class CancellableFuture<T> implements Future<T> {
   /// the status of the computation (e.g. whether it's been cancelled)
   /// and access other functionality related to its lifecycle.
   factory CancellableFuture.ctx(Future<T> Function(CancellableContext) function,
-      {String? debugName}) {
-    return _createCancellableFuture(function, debugName);
+      {String? debugName, Function(Object, StackTrace)? uncaughtErrorHandler}) {
+    return _createCancellableFuture(function, debugName, uncaughtErrorHandler);
   }
 
   /// Create a group of asynchronous computations.
@@ -66,7 +67,9 @@ class CancellableFuture<T> implements Future<T> {
   /// [CancellableFuture.stream] method instead.
   static CancellableFuture<void> group<T>(
       Iterable<Future<T> Function()> functions,
-      [FutureOr<void> Function(T)? receiver]) {
+      {FutureOr<void> Function(T)? receiver,
+      String? debugName,
+      Function(Object, StackTrace)? uncaughtErrorHandler}) {
     final counterStream = StreamController<bool>();
     final callback = receiver ?? (T _) {};
     return CancellableFuture(() async {
@@ -91,9 +94,13 @@ class CancellableFuture<T> implements Future<T> {
   ///
   /// The [CancellableFuture.group] method is used to run the provided
   /// `functions`. See that method for more details.
-  static Stream<T> stream<T>(Iterable<Future<T> Function()> functions) {
+  static Stream<T> stream<T>(Iterable<Future<T> Function()> functions,
+      {String? debugName, Function(Object, StackTrace)? uncaughtErrorHandler}) {
     final controller = StreamController<T>();
-    group(functions, controller.add)
+    group(functions,
+            receiver: controller.add,
+            debugName: debugName,
+            uncaughtErrorHandler: uncaughtErrorHandler)
         .then((_) {}, onError: controller.addError)
         .whenComplete(controller.close);
     return controller.stream;
@@ -128,7 +135,7 @@ class CancellableFuture<T> implements Future<T> {
   /// Cancel this [CancellableFuture].
   ///
   /// Currently dormant computations will not be immediately interrupted,
-  /// but any [Future] or microtask started within this computation
+  /// but any [Future] or [Timer] started within this computation
   /// after a call to this method will throw [FutureCancelled].
   ///
   /// Any "nested" [CancellableFuture]s started within this computation
@@ -136,24 +143,6 @@ class CancellableFuture<T> implements Future<T> {
   void cancel() {
     _state.cancel();
   }
-}
-
-/// An Exception thrown when awaiting for the completion of a
-/// [CancellableFuture] that has been cancelled.
-///
-/// Every [Future] and microtask running inside a [CancellableFuture]'s
-/// [Zone] will be stopped by this Exception being thrown.
-class FutureCancelled implements Exception {
-  const FutureCancelled();
-
-  @override
-  String toString() {
-    return 'FutureCancelled';
-  }
-}
-
-void _interrupt() {
-  throw const FutureCancelled();
 }
 
 /// Get the nearest [CancellableContext] if this computation is running within
@@ -167,32 +156,25 @@ CancellableContext? currentCancellableContext() {
 
 ZoneSpecification _createZoneSpec(StructuredAsyncZoneState state) =>
     ZoneSpecification(createTimer: (self, parent, zone, d, f) {
-      if (state.isComputationCancelled()) {
-        parent.scheduleMicrotask(zone, _interrupt);
-        return parent.createTimer(zone, d, f)..cancel();
-      }
-      return state.remember(parent.createTimer(zone, d, f), cancelEarly: false);
+      return state.remember(parent.createTimer(zone, d, f), f);
     }, createPeriodicTimer: (self, parent, zone, d, f) {
-      if (state.isComputationCancelled()) {
-        parent.scheduleMicrotask(zone, _interrupt);
-        return parent.createPeriodicTimer(zone, d, f)..cancel();
-      }
-      return state.remember(parent.createPeriodicTimer(zone, d, f),
-          cancelEarly: true);
-    }, scheduleMicrotask: (self, parent, zone, f) {
-      if (state.isComputationCancelled()) {
-        return parent.scheduleMicrotask(zone, _interrupt);
-      }
-      parent.scheduleMicrotask(zone, f);
+      final timer = parent.createPeriodicTimer(zone, d, f);
+      return state.remember(timer, () => f(timer));
     });
 
 CancellableFuture<T> _createCancellableFuture<T>(
-    Future<T> Function(CancellableContext) function, String? debugName) {
+    Future<T> Function(CancellableContext) function,
+    String? debugName,
+    Function(Object, StackTrace)? uncaughtErrorHandler) {
   final state = StructuredAsyncZoneState();
   final result = Completer<T>();
 
   void onError(e, st) {
     state.cancel();
+    try {
+      uncaughtErrorHandler?.call(e, st);
+      // ignore: empty_catches
+    } catch (ignore) {}
     if (result.isCompleted) return;
     result.completeError(e, st);
   }
@@ -203,11 +185,11 @@ CancellableFuture<T> _createCancellableFuture<T>(
         throw const FutureCancelled();
       }
       function(state)
-          .then(result.complete)
+          .then((v) => scheduleMicrotask(() => result.complete(v)))
           .catchError(onError)
           .whenComplete(() {
         // make sure that nothing can run after Future returns
-        state.cancel(true);
+        return state.cancel(true);
       });
     }, onError,
         zoneValues: state.createZoneValues(),

@@ -16,7 +16,8 @@ void main() {
     test('example 2', () async {
       final result = await _run(2);
       expect(await result.firstError, isNull);
-      expect(result.sysout, equals(['Tick', 'Tick', 'Tick', 'Stopped']));
+      expect(
+          result.sysout, equals(['Tick', 'Tick', 'Tick', 'Tick', 'Stopped']));
     });
 
     test('example 3', () async {
@@ -35,7 +36,7 @@ void main() {
       final result = await _run(5);
       expect(await result.firstError, isNull);
       expect(result.sysout,
-          equals(['Tic', 'Tac', 'Tic', 'Future was cancelled', 'Tac']));
+          equals(['Tic', 'Tac', 'Tic', 'Tac', 'Future was cancelled']));
     });
 
     test('example 6', () async {
@@ -57,40 +58,43 @@ void main() {
     test('example 8', () async {
       final result = await _run(8, timeout: Duration(seconds: 10));
       expect(await result.firstError, isNull);
-      expect(result.sysout, equals(['Tick', 'Tick', '10']));
+      expect(result.sysout, equals(['Tick', 'Tick', 'Tick', '10']));
     });
 
     test('example 9', () async {
+      final start = DateTime.now();
       final result = await _run(9);
       expect(await result.firstError, isNull);
+      expect(DateTime.now().difference(start).inMilliseconds, lessThan(1900),
+          reason: 'Future is cancelled after 1 second and '
+              'should not wait 2 seconds for dormant Future');
       expect(result.sysout, equals(['2 seconds later']));
     });
 
     test('example 10', () async {
+      final start = DateTime.now();
       final result = await _run(10);
       expect(await result.firstError, isNull);
+      expect(DateTime.now().difference(start).inMilliseconds, lessThan(1900),
+          reason: 'Future is cancelled after 1 second and '
+              'should not wait 2 seconds for dormant Future');
       expect(result.sysout, equals(['Cancelled']));
     });
 
     test('example 11', () async {
       final result = await _run(11);
       expect(await result.firstError, isNull);
-      final ping = 'Waiting for ping response';
-      final ok = 'Ping OK';
-      final cancelled = 'XXX Isolate should be cancelled now! XXX';
+      final hello = 'Isolate says: hello';
       expect(
           result.sysout,
           equals([
-            ping,
-            ok,
-            ping,
-            ok,
-            ping,
-            ok,
-            cancelled,
-            'Cancelled',
+            hello,
+            hello,
+            hello,
+            'XXX Task was cancelled now! XXX',
+            'CancellableFuture finished',
+            'Killing ISO',
             'Done',
-            ping,
           ]));
     });
   }, retry: 1);

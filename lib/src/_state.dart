@@ -1,19 +1,28 @@
 import 'dart:async';
 
 import 'context.dart';
+import 'error.dart';
 
 /// A symbol that is used as key for accessing the status of a
 /// [CancellableFuture].
 const Symbol _stateZoneKey = #structured_async_zone_state;
 
+class _TimerEntry {
+  final Timer timer;
+  final Function() function;
+
+  _TimerEntry(this.timer, this.function);
+}
+
 class StructuredAsyncZoneState with CancellableContext {
   bool _isCancelled;
 
   bool get isCancelled => _isCancelled;
-  List<Timer>? _timers = [];
-  List<Timer>? _periodicTimers = [];
+  List<_TimerEntry>? _timers;
 
-  List<Function()>? _cancellables = [];
+  List<Function()>? _cancellables;
+
+  List<FutureOr<void> Function()>? _completions;
 
   StructuredAsyncZoneState([this._isCancelled = false]);
 
@@ -21,63 +30,67 @@ class StructuredAsyncZoneState with CancellableContext {
   bool isComputationCancelled() => isCurrentZoneCancelled();
 
   @override
-  void scheduleOnCancel(Function() onCancelled) {
-    _cancellables?.add(onCancelled);
+  void scheduleOnCancel(void Function() onCancelled) {
+    if (_isCancelled) return;
+    (_cancellables ??= []).add(onCancelled);
   }
 
-  Timer remember(Timer timer, {required bool cancelEarly}) {
+  @override
+  void scheduleOnCompletion(void Function() onCompletion) {
+    if (_isCancelled) return;
+    (_completions ??= []).add(onCompletion);
+  }
+
+  Timer remember(Timer timer, Function() function) {
+    if (_isCancelled) {
+      timer.cancel();
+      throw const FutureCancelled();
+    }
     // periodicTimers are cancelled "early" because user-code cannot
     // block Future completion based on a periodic timer, normally,
-    // so these timers are normally "fire-and-forget".
-    final timers = cancelEarly ? _periodicTimers : _timers;
-    if (timers != null) {
-      timers.add(timer);
-      if (timers.length % 10 == 0) {
-        timers.removeWhere((t) => !t.isActive);
-      }
+    // so these timers are normally "fire-and-forget" as opposed to regular
+    // timers, which the user might be waiting for, so we can't cancel.
+    var timers = _timers;
+    if (timers == null) {
+      _timers = timers = <_TimerEntry>[];
+    }
+    timers.add(_TimerEntry(timer, function));
+    if (timers.length % 10 == 0) {
+      timers.removeWhere((t) => !t.timer.isActive);
     }
     return timer;
   }
 
   @override
-  void cancel([bool cancelTimers = false]) {
-    final wasCancelled = _isCancelled;
-    _isCancelled = true;
-    if (!wasCancelled && !cancelTimers) {
+  void cancel([bool isCompletion = false]) {
+    if (isCompletion) {
+      _completions = _callOnRootZone(_completions);
+    } else {
       // cancellables only run when future is explicitly cancelled...
-      // cancelTimers is true when the Cancellable completed successfully.
-      _callCancellables();
+      _cancellables = _callOnRootZone(_cancellables);
     }
-    _cancelTimers(periodic: true);
-    if (cancelTimers) {
-      _cancelTimers(periodic: false);
+    _timers = _stopTimers(_timers);
+    _isCancelled = true;
+  }
+
+  // ignore: prefer_void_to_null
+  static Null _stopTimers(Iterable<_TimerEntry>? timers) {
+    if (timers == null) return;
+    for (final t in timers) {
+      if (t.timer.isActive) {
+        t.timer.cancel();
+        // wake up the timer function so the caller may continue
+        scheduleMicrotask(t.function);
+      }
     }
   }
 
-  void _callCancellables() {
-    final cancellables = _cancellables;
-
-    if (cancellables != null) {
-      for (final c in cancellables) {
+  // ignore: prefer_void_to_null
+  static Null _callOnRootZone(Iterable<Function()>? functions) {
+    if (functions != null) {
+      for (final c in functions) {
         Zone.root.run(c);
       }
-      _cancellables = null;
-    }
-  }
-
-  void _cancelTimers({required bool periodic}) {
-    final timers = periodic ? _periodicTimers : _timers;
-    if (timers == null) return;
-    for (final timer in timers) {
-      if (timer.isActive) {
-        // in the current Zone, Futures are cancelled
-        Zone.root.run(() => Future(timer.cancel));
-      }
-    }
-    if (periodic) {
-      _periodicTimers = null;
-    } else {
-      _timers = null;
     }
   }
 
