@@ -220,7 +220,7 @@ Future<void> groupExample() async {
   final group = CancellableFuture.group([
             () async => 10,
             () async => 20,
-  ], (int item) => result+= item);
+  ], (int item) => result += item);
   await group;
   print('Result: $result');
 }
