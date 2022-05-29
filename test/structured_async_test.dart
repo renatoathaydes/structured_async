@@ -181,6 +181,25 @@ void main() {
       expect(onCancelZone, same(Zone.root),
           reason: 'onCancel callback should run at the root Zone');
     });
+
+    test('cancel Future from within itself', () async {
+      int value = 0;
+      final future = CancellableFuture.ctx((ctx) async {
+        value += await async10();
+        ctx.cancel();
+        value += await async10();
+      });
+
+      try {
+        await future;
+        fail('Future should have been cancelled');
+      } on FutureCancelled {
+        // good
+      }
+      expect(value, equals(10),
+          reason:
+              'only the async call before cancellation should have executed');
+    });
   }, timeout: Timeout(Duration(seconds: 5)));
 
   group('Should not be able to cancel future that has already been started',

@@ -83,7 +83,9 @@ To cancel a `CancellableFuture`, you've guessed it: call the `cancel()` method.
 
 > From within the `CancellableFuture` computation itself, throwing an error has a similar effect as
 > being cancelled from the _outside_, i.e. stop everything and complete with an error.
-> You can use `throw const FutureCancelled()` achieve the exact same effect.
+> However, to be more explicit, you can either build the Future with `CancellableFuture.ctx`,
+> then call `cancel()` on the provided context object (after which no more async computations may succeed
+> within the same computation), or more simply, use `throw const FutureCancelled()`.
 
 Example:
 
