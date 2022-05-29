@@ -21,4 +21,7 @@ mixin CancellableContext {
   /// asynchronous computations. The [CancellableFuture.cancel] method does not
   /// wait for callbacks registered via this method to complete before returning.
   void scheduleOnCancel(Function() onCancelled);
+
+  /// Cancel the [CancellableFuture] this context belongs to.
+  void cancel();
 }

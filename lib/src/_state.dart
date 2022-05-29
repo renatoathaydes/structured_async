@@ -39,6 +39,7 @@ class StructuredAsyncZoneState with CancellableContext {
     return timer;
   }
 
+  @override
   void cancel([bool cancelTimers = false]) {
     final wasCancelled = _isCancelled;
     _isCancelled = true;
