@@ -2,10 +2,13 @@
 
 ### Added
 - New `CancellableContext.cancel` method.
+- New `CancellableContext.scheduleOnCompletion` method.
 - New `CancellableFuture.stream` factory method.
 
 ### Changed
-- `CancellableFuture.group` factory method signature changed to return `CancellableFuture<void>`.
+- `CancellableFuture.group` factory method signature changed and returns `CancellableFuture<void>`.
+- `CancellableFuture` constructors take new parameters `debugName` and `uncaughtErrorHandler`.
+- Changed behavior when cancelling `CancellableFuture` to always complete pending `Future`s and `Timer`s.
 
 ### Removed
 - `toList`, `toSet` and `toNothing` accumulators as the `group` method no longer takes accumulators.
