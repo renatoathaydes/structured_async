@@ -140,6 +140,43 @@ void main() {
                   'should be interrupted (was? $interrupted)');
         });
       }
+
+      test('causing even child CancellableFutures to get cancelled', () async {
+        var isChildCancelled = false;
+        final startTime = DateTime.now().millisecondsSinceEpoch;
+        final parent = CancellableFuture(() {
+          return CancellableFuture(() async {
+            await CancellableFuture.ctx((ctx) async {
+              ctx.scheduleOnCancel(() {
+                isChildCancelled = true;
+              });
+              await Future.delayed(Duration(seconds: 1));
+              isRun = true;
+            });
+            try {
+              await Future.delayed(Duration.zero);
+            } on FutureCancelled {
+              interrupted = true;
+            }
+          });
+        });
+
+        await Future.delayed(Duration(milliseconds: 100));
+
+        parent.cancel();
+        await parent;
+        final futureEndTime = DateTime.now().millisecondsSinceEpoch;
+        await Future.delayed(Duration.zero);
+
+        expect(futureEndTime - startTime, lessThan(600),
+            reason: 'Child Future would block for 1 second, but '
+                'after cancellation all should be stopped before that');
+        expect(
+            [isRun, interrupted, isChildCancelled], equals([true, true, true]),
+            reason: 'should have run (ran? $isRun), '
+                'should be interrupted (was? $interrupted), '
+                'child should be cancelled (was? $isChildCancelled)');
+      });
     });
 
     test('check for cancellation explicitly from within a computation', () {

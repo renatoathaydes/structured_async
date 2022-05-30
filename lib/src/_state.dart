@@ -24,10 +24,12 @@ class StructuredAsyncZoneState with CancellableContext {
 
   List<FutureOr<void> Function()>? _completions;
 
-  StructuredAsyncZoneState([this._isCancelled = false]);
+  StructuredAsyncZoneState([this._isCancelled = false]) {
+    nearestCancellableContext()?.scheduleOnCancel(cancel);
+  }
 
   @override
-  bool isComputationCancelled() => isCurrentZoneCancelled();
+  bool isComputationCancelled() => _isCancelled || isCurrentZoneCancelled();
 
   @override
   void scheduleOnCancel(void Function() onCancelled) {
