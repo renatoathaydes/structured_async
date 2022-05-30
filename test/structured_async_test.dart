@@ -177,6 +177,31 @@ void main() {
                 'should be interrupted (was? $interrupted), '
                 'child should be cancelled (was? $isChildCancelled)');
       });
+
+      test('causing periodic timers to be cancelled', () async {
+        final ticks = <bool>[];
+        Timer? timer;
+        final startTime = DateTime.now().millisecondsSinceEpoch;
+
+        final future = CancellableFuture(() async {
+          timer = Timer.periodic(Duration(milliseconds: 20), (_) {
+            ticks.add(true);
+          });
+          await Future.delayed(Duration(seconds: 5));
+        });
+
+        await Future.delayed(Duration(milliseconds: 50));
+
+        future.cancel();
+        await future;
+        final futureEndTime = DateTime.now().millisecondsSinceEpoch;
+
+        expect(ticks.length, allOf(greaterThan(1), lessThan(5)));
+        expect(timer?.isActive, isFalse);
+        expect(futureEndTime - startTime, lessThan(200),
+            reason: 'Future would block for 5 seconds, but '
+                'after cancellation it should be stopped before that');
+      });
     });
 
     test('check for cancellation explicitly from within a computation', () {
