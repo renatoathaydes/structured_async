@@ -1,3 +1,8 @@
+## 0.3.1 - 2022-05-30
+
+### Changed
+- Descendant `CancellableContext.scheduleOnCancel` callbacks are now called when ancestor is cancelled.
+
 ## 0.3.0 - 2022-05-29
 
 ### Added
