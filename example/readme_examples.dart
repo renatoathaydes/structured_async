@@ -180,7 +180,6 @@ Future<void> stoppingIsolates() async {
     final responsePort = ReceivePort()..listen(print);
 
     final iso = await Isolate.spawn((message) async {
-      message as SendPort;
       for (var i = 0; i < 10; i++) {
         await Future.delayed(Duration(milliseconds: 500),
             () => message.send('Isolate says: hello'));
