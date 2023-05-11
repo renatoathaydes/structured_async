@@ -1,3 +1,8 @@
+## 0.3.2 - 2023-05-11
+
+### Changed
+- Updated dependencies, allow Dart 3.
+
 ## 0.3.1 - 2022-05-30
 
 ### Changed

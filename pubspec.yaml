@@ -1,10 +1,10 @@
 name: structured_async
 description: Structured asynchronous programming in Dart.
-version: 0.3.1
+version: 0.3.2
 homepage: https://github.com/renatoathaydes/structured_async
 
 environment:
-  sdk: '>=2.19.0 <3.0.0'
+  sdk: '>=2.19.0 <4.0.0'
 
 dev_dependencies:
   dartle: ^0.22.2
